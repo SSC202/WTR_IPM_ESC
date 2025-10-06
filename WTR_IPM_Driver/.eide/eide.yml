@@ -4,8 +4,7 @@ type: ARM
 deviceName: null
 packDir: null
 srcDirs:
-  - Hardware
-  - Encoder
+  - APP
 virtualFolder:
   name: <virtual_root>
   files: []
@@ -25,31 +24,20 @@ virtualFolder:
                 - path: Core/Src/main.c
                 - path: Core/Src/gpio.c
                 - path: Core/Src/adc.c
+                - path: Core/Src/dma.c
                 - path: Core/Src/tim.c
+                - path: Core/Src/usart.c
                 - path: Core/Src/stm32g4xx_it.c
                 - path: Core/Src/stm32g4xx_hal_msp.c
               folders: []
-            - name: USB_Device
-              files: []
-              folders:
-                - name: Target
-                  files:
-                    - path: USB_Device/Target/usbd_conf.c
-                  folders: []
-                - name: App
-                  files:
-                    - path: USB_Device/App/usb_device.c
-                    - path: USB_Device/App/usbd_desc.c
-                    - path: USB_Device/App/usbd_cdc_if.c
-                  folders: []
     - name: Drivers
       files: []
       folders:
         - name: STM32G4xx_HAL_Driver
           files:
-            - path: Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_pcd.c
-            - path: Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_pcd_ex.c
-            - path: Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_ll_usb.c
+            - path: Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_adc.c
+            - path: Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_adc_ex.c
+            - path: Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_ll_adc.c
             - path: Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal.c
             - path: Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_rcc.c
             - path: Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_rcc_ex.c
@@ -63,11 +51,10 @@ virtualFolder:
             - path: Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_pwr.c
             - path: Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_pwr_ex.c
             - path: Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_cortex.c
-            - path: Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_adc.c
-            - path: Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_adc_ex.c
-            - path: Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_ll_adc.c
             - path: Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_tim.c
             - path: Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_tim_ex.c
+            - path: Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_uart.c
+            - path: Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_uart_ex.c
           folders: []
         - name: CMSIS
           files:
@@ -83,23 +70,22 @@ virtualFolder:
         - path: FOC/foc_math.c
         - path: FOC/svpwm.c
       folders: []
+    - name: Hardware
+      files:
+        - path: Hardware/hwprint.c
+      folders: []
+    - name: Encoder
+      files:
+        - path: Encoder/MT6701/mt6701.c
+        - path: Encoder/encoder.c
+      folders: []
     - name: ::CMSIS
       files: []
       folders: []
-    - name: Middlewares
-      files: []
-      folders:
-        - name: USB_Device_Library
-          files:
-            - path: Middlewares/ST/STM32_USB_Device_Library/Core/Src/usbd_core.c
-            - path: Middlewares/ST/STM32_USB_Device_Library/Core/Src/usbd_ctlreq.c
-            - path: Middlewares/ST/STM32_USB_Device_Library/Core/Src/usbd_ioreq.c
-            - path: Middlewares/ST/STM32_USB_Device_Library/Class/CDC/Src/usbd_cdc.c
-          folders: []
 dependenceList: []
 outDir: build
 miscInfo:
-  uid: c555fceae30537f5c350f42a85ed71b4
+  uid: 6f0881a2ebd5cbd48e19271062abec81
 targets:
   WTR_IPM_Driver:
     cppPreprocessAttrs:
@@ -116,17 +102,55 @@ targets:
         - Usercode
         - Hardware
         - Encoder
+        - APP
         - Encoder/MT6701
-        - USB_Device/App
-        - USB_Device/Target
-        - Middlewares/ST/STM32_USB_Device_Library/Core/Inc
-        - Middlewares/ST/STM32_USB_Device_Library/Class/CDC/Inc
         - .cmsis/include
         - MDK-ARM/RTE/_WTR_IPM_Driver
       libList: []
     excludeList: []
     toolchain: AC6
     toolchainConfigMap:
+      AC5:
+        archExtensions: ""
+        cpuType: Cortex-M4
+        floatingPointHardware: single
+        options:
+          version: 4
+          afterBuildTasks: []
+          asm-compiler: {}
+          beforeBuildTasks: []
+          c/cpp-compiler:
+            CXX_FLAGS: --diag_suppress=1 --diag_suppress=1295
+            C_FLAGS: --diag_suppress=1 --diag_suppress=1295
+            c99-mode: true
+            one-elf-section-per-function: true
+            optimization: level-0
+          global:
+            output-debug-info: enable
+            use-microLIB: false
+          linker:
+            $outputTaskExcludes:
+              - .bin
+            output-format: elf
+        scatterFilePath: <YOUR_SCATTER_FILE>.sct
+        storageLayout:
+          RAM:
+            - id: 1
+              isChecked: true
+              mem:
+                size: "0x5000"
+                startAddr: "0x20000000"
+              noInit: false
+              tag: IRAM
+          ROM:
+            - id: 1
+              isChecked: true
+              isStartup: true
+              mem:
+                size: "0x10000"
+                startAddr: "0x08000000"
+              tag: IROM
+        useCustomScatterFile: false
       AC6:
         archExtensions: ""
         cpuType: Cortex-M4

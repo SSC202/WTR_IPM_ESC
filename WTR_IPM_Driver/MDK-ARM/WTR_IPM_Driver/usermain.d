@@ -27,6 +27,7 @@ wtr_ipm_driver/usermain.o: ..\Usercode\usermain.c ..\Usercode\usermain.h \
   ..\Drivers\STM32G4xx_HAL_Driver\Inc\stm32g4xx_ll_adc.h \
   ..\Drivers\STM32G4xx_HAL_Driver\Inc\stm32g4xx_hal_adc_ex.h \
   ..\Drivers\STM32G4xx_HAL_Driver\Inc\stm32g4xx_hal_exti.h \
+  ..\Drivers\STM32G4xx_HAL_Driver\Inc\stm32g4xx_hal_fdcan.h \
   ..\Drivers\STM32G4xx_HAL_Driver\Inc\stm32g4xx_hal_flash.h \
   ..\Drivers\STM32G4xx_HAL_Driver\Inc\stm32g4xx_hal_flash_ex.h \
   ..\Drivers\STM32G4xx_HAL_Driver\Inc\stm32g4xx_hal_flash_ramfunc.h \
@@ -36,8 +37,10 @@ wtr_ipm_driver/usermain.o: ..\Usercode\usermain.c ..\Usercode\usermain.h \
   ..\Drivers\STM32G4xx_HAL_Driver\Inc\stm32g4xx_hal_tim_ex.h \
   ..\Drivers\STM32G4xx_HAL_Driver\Inc\stm32g4xx_hal_uart.h \
   ..\Drivers\STM32G4xx_HAL_Driver\Inc\stm32g4xx_hal_uart_ex.h \
-  ..\Core\Inc\adc.h ..\Core\Inc\main.h \
-  D:\Keil_v5\ARM\ARMCLANG\Bin\..\include\stdio.h \
+  ..\Core\Inc\adc.h ..\Core\Inc\dma.h ..\Core\Inc\usart.h \
+  ..\Core\Inc\main.h D:\Keil_v5\ARM\ARMCLANG\Bin\..\include\stdio.h \
+  D:\Keil_v5\ARM\ARMCLANG\Bin\..\include\string.h \
   ..\FOC\coordinate_transform.h ..\FOC\foc_math.h \
   D:\Keil_v5\ARM\ARMCLANG\Bin\..\include\math.h ..\FOC\foc_math.h \
-  ..\FOC\svpwm.h ..\FOC\coordinate_transform.h ..\Encoder\encoder.h
+  ..\FOC\svpwm.h ..\FOC\coordinate_transform.h ..\Encoder\encoder.h \
+  ..\Encoder\MT6701\mt6701.h ..\APP\ringbuffer.h ..\APP\flash_save.h

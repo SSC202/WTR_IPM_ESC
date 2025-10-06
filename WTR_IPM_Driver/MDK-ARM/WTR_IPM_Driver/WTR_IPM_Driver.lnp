@@ -3,6 +3,8 @@
 "wtr_ipm_driver\main.o"
 "wtr_ipm_driver\gpio.o"
 "wtr_ipm_driver\adc.o"
+"wtr_ipm_driver\dma.o"
+"wtr_ipm_driver\fdcan.o"
 "wtr_ipm_driver\tim.o"
 "wtr_ipm_driver\usart.o"
 "wtr_ipm_driver\stm32g4xx_it.o"
@@ -23,6 +25,7 @@
 "wtr_ipm_driver\stm32g4xx_hal_pwr.o"
 "wtr_ipm_driver\stm32g4xx_hal_pwr_ex.o"
 "wtr_ipm_driver\stm32g4xx_hal_cortex.o"
+"wtr_ipm_driver\stm32g4xx_hal_fdcan.o"
 "wtr_ipm_driver\stm32g4xx_hal_tim.o"
 "wtr_ipm_driver\stm32g4xx_hal_tim_ex.o"
 "wtr_ipm_driver\stm32g4xx_hal_uart.o"
@@ -35,6 +38,8 @@
 "wtr_ipm_driver\hwprint.o"
 "wtr_ipm_driver\mt6701.o"
 "wtr_ipm_driver\encoder.o"
+"wtr_ipm_driver\ringbuffer.o"
+"wtr_ipm_driver\flash_save.o"
 --strict --scatter "WTR_IPM_Driver\WTR_IPM_Driver.sct"
 --summary_stderr --info summarysizes --map --load_addr_map_info --xref --callgraph --symbols
 --info sizes --info totals --info unused --info veneers
