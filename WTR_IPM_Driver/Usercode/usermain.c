@@ -27,7 +27,8 @@ enum SYSTEM_RUN_STATE {
 enum SYSTEM_RUN_STATE system_run_state = SYSTEM_VELOCITY_CTL; // 系统运行状态
 
 enum SYSTEM_TEST_STATE {
-    SYSTEM_OFFSET_TEST, // 编码器偏置/方向检查
+    SYSTEM_POLE_PAIRS_TEST, // 电机极对数检测
+    SYSTEM_OFFSET_TEST,     // 编码器偏置/方向检查
 };
 enum SYSTEM_TEST_STATE system_test_state = SYSTEM_OFFSET_TEST; // 系统校准状态
 
@@ -120,229 +121,231 @@ static void init(void)
 }
 
 /**
+ * @brief   系统状态机线程
+ */
+static void command_thread(uint8_t command_length)
+{
+    switch (system_state) {
+        case SYSTEM_STOP:
+            /**
+             * @brief 接收串口指令
+             */
+            if (command_length != 0) {
+                // 1. 位置设置指令
+                if (memcmp(command, "set_position", 12) == 0) {
+                    system_state     = SYSTEM_RUN;
+                    system_run_state = SYSTEM_POSITION_CTL;
+                    sscanf(command, "set_position %f\r\n", &position_ref);
+                }
+                // 2. 速度设置指令
+                else if (memcmp(command, "set_speed", 9) == 0) {
+                    system_state     = SYSTEM_RUN;
+                    system_run_state = SYSTEM_VELOCITY_CTL;
+                    sscanf(command, "set_speed %f\r\n", &speed_ref);
+                }
+                // 3. 设置位置环配置指令
+                else if (memcmp(command, "config_position_pid", 19) == 0) {
+                    sscanf(command, "config_position_pid %f %f %f %f\r\n", &position_pid_kp, &position_pid_ki, &position_pid_kd, &position_pid_maxoutput);
+                    position_pid.KP        = position_pid_kp;
+                    position_pid.KI        = position_pid_ki;
+                    position_pid.KD        = position_pid_kd;
+                    position_pid.outputMax = position_pid_maxoutput;
+                }
+                // 4. 设置速度环配置指令
+                else if (memcmp(command, "config_speed_pi", 15) == 0) {
+                    sscanf(command, "config_speed_pi %f %f %f\r\n", &speed_pi_kp, &speed_pi_ki, &speed_pi_maxoutput);
+                    speed_pi.KP        = speed_pi_kp;
+                    speed_pi.KI        = speed_pi_ki;
+                    speed_pi.outputMax = speed_pi_maxoutput;
+                }
+                // 5. 设置电流环配置指令
+                else if (memcmp(command, "config_current_pi", 17) == 0) {
+                    sscanf(command, "config_current_pi %f %f %f %f\r\n", &id_pi_kp, &id_pi_ki, &iq_pi_kp, &iq_pi_ki);
+                    id_pi.KP = id_pi_kp;
+                    id_pi.KI = id_pi_ki;
+                    iq_pi.KP = iq_pi_kp;
+                    iq_pi.KI = iq_pi_ki;
+                }
+                // 6. 设置电流滤波器截止频率指令
+                else if (memcmp(command, "config_idq_filter", 17) == 0) {
+                    sscanf(command, "config_idq_filter %f\r\n", &f_c);
+                    LPF_Init(&id_lpf, f_c, system_sample_time);
+                    LPF_Init(&iq_lpf, f_c, system_sample_time);
+                }
+                // 7. 设置编码器指令
+                else if (memcmp(command, "config_encoder", 14) == 0) {
+                    sscanf(command, "config_encoder %d %d %f %s\r\n", &pole_pairs, &encoder_direct, &encoder_offset, encoder_type_rxstr);
+                    for (int i = 0; i < 2; i++) {
+                        if (strcmp(encoder_type_rxstr, encoder_type_str[i]) == 0) {
+                            encoder_type = i;
+                            break;
+                        }
+                    }
+                    encoder.pole_pairs     = pole_pairs;
+                    encoder.encoder_direct = encoder_direct;
+                    encoder.encoder_offset = encoder_offset;
+                    encoder.encoder_type   = encoder_type;
+                }
+                // 8. 保存配置指令
+                else if (memcmp(command, "save", 4) == 0) {
+                    Flash_Save(position_pid_kp, position_pid_ki, position_pid_kd, position_pid_maxoutput, speed_pi_kp, speed_pi_ki, speed_pi_maxoutput, f_c, id_pi_kp, id_pi_ki, iq_pi_kp, iq_pi_ki, pole_pairs, encoder_direct, encoder_offset, encoder_type);
+                }
+                // 9. 校准指令
+                else if (memcmp(command, "calibration", 11) == 0) {
+                    system_state      = SYSTEM_TEST;
+                    system_test_state = SYSTEM_POLE_PAIRS_TEST;
+                }
+            }
+            /**
+             * @brief 接收CAN线指令
+             */
+
+            break;
+        case SYSTEM_RUN:
+            switch (system_run_state) {
+                case SYSTEM_POSITION_CTL:
+                    /**
+                     * @brief 接收串口指令
+                     */
+                    if (command_length != 0) {
+                        // 1. 位置设置指令
+                        if (memcmp(command, "set_position", 12) == 0) {
+                            sscanf(command, "set_position %f\r\n", &position_ref);
+                        }
+                        // 2. 速度设置指令
+                        else if (memcmp(command, "set_speed", 9) == 0) {
+                            system_run_state = SYSTEM_VELOCITY_CTL;
+                            sscanf(command, "set_speed %f\r\n", &speed_ref);
+                        }
+                        // 3. 停止指令
+                        else if (memcmp(command, "stop", 4) == 0) {
+                            system_state = SYSTEM_STOP;
+                            speed_ref    = 0;
+                            position_ref = encoder.encoder_total_theta;
+                        }
+                    }
+                    break;
+                case SYSTEM_VELOCITY_CTL:
+                    /**
+                     * @brief 接收串口指令
+                     */
+                    if (command_length != 0) {
+                        // 1. 位置设置指令
+                        if (memcmp(command, "set_position", 12) == 0) {
+                            system_run_state = SYSTEM_POSITION_CTL;
+                            sscanf(command, "set_position %f\r\n", &position_ref);
+                        }
+                        // 2. 速度设置指令
+                        else if (memcmp(command, "set_speed", 9) == 0) {
+                            sscanf(command, "set_speed %f\r\n", &speed_ref);
+                        }
+                        // 3. 停止指令
+                        else if (memcmp(command, "stop", 4) == 0) {
+                            system_state = SYSTEM_STOP;
+                            speed_ref    = 0;
+                            position_ref = encoder.encoder_total_theta;
+                        }
+                    }
+                    break;
+                default:
+                    break;
+            }
+            break;
+        case SYSTEM_FAULT:
+            /**
+             * @brief 接收串口指令
+             */
+            if (command_length != 0) {
+                // 1. 位置设置指令
+                if (memcmp(command, "clear_fault", 11) == 0) {
+                    system_run_state = SYSTEM_STOP;
+                }
+            }
+            break;
+        case SYSTEM_TEST:
+            break;
+        default:
+            break;
+    }
+}
+
+/**
+ * @brief   串口发送线程
+ */
+void uart_send_thread(uint8_t command_length)
+{
+    switch (system_uart_state) {
+        case SEND_POSITION:
+            sprintf(uart_tx_buf, "position: %f\r\n", encoder.encoder_total_theta);
+            HAL_UART_Transmit_DMA(&huart1, uart_tx_buf, strlen(uart_tx_buf));
+            if (command_length != 0) {
+                if (memcmp(command, "get_speed", 9) == 0) {
+                    system_uart_state = SEND_SPEED;
+                } else if (memcmp(command, "get_none", 8) == 0) {
+                    system_uart_state = SEND_NONE;
+                }
+            }
+            break;
+        case SEND_SPEED:
+            sprintf(uart_tx_buf, "speed: %f\r\n", encoder.encoder_speed);
+            HAL_UART_Transmit_DMA(&huart1, uart_tx_buf, strlen(uart_tx_buf));
+            if (command_length != 0) {
+                if (memcmp(command, "get_position", 12) == 0) {
+                    system_uart_state = SEND_POSITION;
+                } else if (memcmp(command, "get_none", 8) == 0) {
+                    system_uart_state = SEND_NONE;
+                }
+            }
+            break;
+        case SEND_NONE:
+            if (command_length != 0) {
+                if (memcmp(command, "get_position", 12) == 0) {
+                    system_uart_state = SEND_POSITION;
+                } else if (memcmp(command, "get_speed", 9) == 0) {
+                    system_uart_state = SEND_SPEED;
+                } else if (memcmp(command, "get_config", 10) == 0) {
+                    system_uart_state = SEND_CONFIG;
+                }
+            }
+            break;
+        case SEND_CONFIG:
+            sprintf(uart_tx_buf,
+                    "position_pid:\r\nKp: %f\r\nKi: %f\r\nKd: %f\r\nmaxoutput: %f\r\n\r\nspeed_pi:\r\nKp: %f\r\nKi: %f\r\nmaxoutput: %f\r\n\r\nidq_filter_fc: %f\r\n\r\ni_pi:\r\nid_Kp: %f\r\nid_Ki: %f\r\niq_Kp: %f\r\niq_Ki: %f\r\n\r\nencoder:\r\npole_pairs:%d\r\nencoder_direct:%d\r\nencoder_offset:%f\r\nencoder_type:%s\r\n",
+                    position_pid.KP,
+                    position_pid.KI,
+                    position_pid.KD,
+                    position_pid.outputMax,
+                    speed_pi.KP,
+                    speed_pi.KI,
+                    speed_pi.outputMax,
+                    f_c,
+                    id_pi.KP,
+                    id_pi.KI,
+                    iq_pi.KP,
+                    iq_pi.KI,
+                    pole_pairs,
+                    encoder_direct,
+                    encoder_offset,
+                    encoder_type_str[encoder_type]);
+            HAL_UART_Transmit_DMA(&huart1, uart_tx_buf, strlen(uart_tx_buf));
+            system_uart_state = SEND_NONE;
+            break;
+        default:
+            break;
+    }
+}
+
+/**
  * @brief   系统主函数
  */
 void usermain(void)
 {
-    static uint8_t command_length;
     init();
     while (1) {
+        static uint8_t command_length;
         command_length = command_get_command(command);
-        /**
-         * @brief  串口指令处理
-         */
-
-        /**
-         * @brief  系统状态机
-         */
-        switch (system_state) {
-            case SYSTEM_STOP:
-                /**
-                 * @brief 接收串口指令
-                 */
-                if (command_length != 0) {
-                    // 1. 位置设置指令
-                    if (memcmp(command, "set_position", 12) == 0) {
-                        system_state     = SYSTEM_RUN;
-                        system_run_state = SYSTEM_POSITION_CTL;
-                        sscanf(command, "set_position %f\r\n", &position_ref);
-                    }
-                    // 2. 速度设置指令
-                    else if (memcmp(command, "set_speed", 9) == 0) {
-                        system_state     = SYSTEM_RUN;
-                        system_run_state = SYSTEM_VELOCITY_CTL;
-                        sscanf(command, "set_speed %f\r\n", &speed_ref);
-                    }
-                    // 3. 设置位置环配置指令
-                    else if (memcmp(command, "config_position_pid", 19) == 0) {
-                        sscanf(command, "config_position_pid %f %f %f %f\r\n", &position_pid_kp, &position_pid_ki, &position_pid_kd, &position_pid_maxoutput);
-                        position_pid.KP        = position_pid_kp;
-                        position_pid.KI        = position_pid_ki;
-                        position_pid.KD        = position_pid_kd;
-                        position_pid.outputMax = position_pid_maxoutput;
-                    }
-                    // 4. 设置速度环配置指令
-                    else if (memcmp(command, "config_speed_pi", 15) == 0) {
-                        sscanf(command, "config_speed_pi %f %f %f\r\n", &speed_pi_kp, &speed_pi_ki, &speed_pi_maxoutput);
-                        speed_pi.KP        = speed_pi_kp;
-                        speed_pi.KI        = speed_pi_ki;
-                        speed_pi.outputMax = speed_pi_maxoutput;
-                    }
-                    // 5. 设置电流环配置指令
-                    else if (memcmp(command, "config_current_pi", 17) == 0) {
-                        sscanf(command, "config_current_pi %f %f %f %f\r\n", &id_pi_kp, &id_pi_ki, &iq_pi_kp, &iq_pi_ki);
-                        id_pi.KP = id_pi_kp;
-                        id_pi.KI = id_pi_ki;
-                        iq_pi.KP = iq_pi_kp;
-                        iq_pi.KI = iq_pi_ki;
-                    }
-                    // 6. 设置电流滤波器截止频率指令
-                    else if (memcmp(command, "config_idq_filter", 17) == 0) {
-                        sscanf(command, "config_idq_filter %f\r\n", &f_c);
-                        LPF_Init(&id_lpf, f_c, system_sample_time);
-                        LPF_Init(&iq_lpf, f_c, system_sample_time);
-                    }
-                    // 7. 设置编码器指令
-                    else if (memcmp(command, "config_encoder", 14) == 0) {
-                        sscanf(command, "config_encoder %d %d %f %s\r\n", &pole_pairs, &encoder_direct, &encoder_offset, encoder_type_rxstr);
-                        for (int i = 0; i < 2; i++) {
-                            if (strcmp(encoder_type_rxstr, encoder_type_str[i]) == 0) {
-                                encoder_type = i;
-                                break;
-                            }
-                        }
-                        encoder.pole_pairs     = pole_pairs;
-                        encoder.encoder_direct = encoder_direct;
-                        encoder.encoder_offset = encoder_offset;
-                        encoder.encoder_type   = encoder_type;
-                    }
-                    // 8. 保存配置指令
-                    else if (memcmp(command, "save", 4) == 0) {
-                        Flash_Save(position_pid_kp, position_pid_ki, position_pid_kd, position_pid_maxoutput, speed_pi_kp, speed_pi_ki, speed_pi_maxoutput, f_c, id_pi_kp, id_pi_ki, iq_pi_kp, iq_pi_ki, pole_pairs, encoder_direct, encoder_offset, encoder_type);
-                    }
-                    // 9. 校准指令
-                    else if (memcmp(command, "calibration", 11) == 0) {
-                        system_state      = SYSTEM_TEST;
-                        system_test_state = SYSTEM_OFFSET_TEST;
-                    }
-                }
-                /**
-                 * @brief 接收CAN线指令
-                 */
-
-                break;
-            case SYSTEM_RUN:
-                switch (system_run_state) {
-                    case SYSTEM_POSITION_CTL:
-                        /**
-                         * @brief 接收串口指令
-                         */
-                        if (command_length != 0) {
-                            // 1. 位置设置指令
-                            if (memcmp(command, "set_position", 12) == 0) {
-                                sscanf(command, "set_position %f\r\n", &position_ref);
-                            }
-                            // 2. 速度设置指令
-                            else if (memcmp(command, "set_speed", 9) == 0) {
-                                system_run_state = SYSTEM_VELOCITY_CTL;
-                                sscanf(command, "set_speed %f\r\n", &speed_ref);
-                            }
-                            // 3. 停止指令
-                            else if (memcmp(command, "stop", 4) == 0) {
-                                system_state = SYSTEM_STOP;
-                                speed_ref    = 0;
-                                position_ref = encoder.encoder_total_theta;
-                            }
-                        }
-                        break;
-                    case SYSTEM_VELOCITY_CTL:
-                        /**
-                         * @brief 接收串口指令
-                         */
-                        if (command_length != 0) {
-                            // 1. 位置设置指令
-                            if (memcmp(command, "set_position", 12) == 0) {
-                                system_run_state = SYSTEM_POSITION_CTL;
-                                sscanf(command, "set_position %f\r\n", &position_ref);
-                            }
-                            // 2. 速度设置指令
-                            else if (memcmp(command, "set_speed", 9) == 0) {
-                                sscanf(command, "set_speed %f\r\n", &speed_ref);
-                            }
-                            // 3. 停止指令
-                            else if (memcmp(command, "stop", 4) == 0) {
-                                system_state = SYSTEM_STOP;
-                                speed_ref    = 0;
-                                position_ref = encoder.encoder_total_theta;
-                            }
-                        }
-                        break;
-                    default:
-                        break;
-                }
-                break;
-            case SYSTEM_FAULT:
-                /**
-                 * @brief 接收串口指令
-                 */
-                if (command_length != 0) {
-                    // 1. 位置设置指令
-                    if (memcmp(command, "clear_fault", 11) == 0) {
-                        system_run_state = SYSTEM_STOP;
-                    }
-                }
-                break;
-            case SYSTEM_TEST:
-                break;
-            default:
-                break;
-        }
-
-        /**
-         * @brief  串口发送状态机
-         */
-        switch (system_uart_state) {
-            case SEND_POSITION:
-                sprintf(uart_tx_buf, "position: %f\r\n", encoder.encoder_total_theta);
-                HAL_UART_Transmit_DMA(&huart1, uart_tx_buf, strlen(uart_tx_buf));
-                if (command_length != 0) {
-                    if (memcmp(command, "get_speed", 9) == 0) {
-                        system_uart_state = SEND_SPEED;
-                    } else if (memcmp(command, "get_none", 8) == 0) {
-                        system_uart_state = SEND_NONE;
-                    }
-                }
-                break;
-            case SEND_SPEED:
-                sprintf(uart_tx_buf, "speed: %f\r\n", encoder.encoder_speed);
-                HAL_UART_Transmit_DMA(&huart1, uart_tx_buf, strlen(uart_tx_buf));
-                if (command_length != 0) {
-                    if (memcmp(command, "get_position", 12) == 0) {
-                        system_uart_state = SEND_POSITION;
-                    } else if (memcmp(command, "get_none", 8) == 0) {
-                        system_uart_state = SEND_NONE;
-                    }
-                }
-                break;
-            case SEND_NONE:
-                if (command_length != 0) {
-                    if (memcmp(command, "get_position", 12) == 0) {
-                        system_uart_state = SEND_POSITION;
-                    } else if (memcmp(command, "get_speed", 9) == 0) {
-                        system_uart_state = SEND_SPEED;
-                    } else if (memcmp(command, "get_config", 10) == 0) {
-                        system_uart_state = SEND_CONFIG;
-                    }
-                }
-                break;
-            case SEND_CONFIG:
-                sprintf(uart_tx_buf,
-                        "position_pid:\r\nKp: %f\r\nKi: %f\r\nKd: %f\r\nmaxoutput: %f\r\n\r\nspeed_pi:\r\nKp: %f\r\nKi: %f\r\nmaxoutput: %f\r\n\r\nidq_filter_fc: %f\r\n\r\ni_pi:\r\nid_Kp: %f\r\nid_Ki: %f\r\niq_Kp: %f\r\niq_Ki: %f\r\n\r\nencoder:\r\npole_pairs:%d\r\nencoder_direct:%d\r\nencoder_offset:%f\r\nencoder_type:%s\r\n",
-                        position_pid.KP,
-                        position_pid.KI,
-                        position_pid.KD,
-                        position_pid.outputMax,
-                        speed_pi.KP,
-                        speed_pi.KI,
-                        speed_pi.outputMax,
-                        f_c,
-                        id_pi.KP,
-                        id_pi.KI,
-                        iq_pi.KP,
-                        iq_pi.KI,
-                        pole_pairs,
-                        encoder_direct,
-                        encoder_offset,
-                        encoder_type_str[encoder_type]);
-                HAL_UART_Transmit_DMA(&huart1, uart_tx_buf, strlen(uart_tx_buf));
-                system_uart_state = SEND_NONE;
-                break;
-            default:
-                break;
-        }
-        /**
-         * @brief  调试信息显示(发布版中注释)
-         */
+        command_thread(command_length);   // 系统状态机线程
+        uart_send_thread(command_length); // 串口发送线程
     }
 }
 
@@ -413,72 +416,98 @@ void HAL_ADCEx_InjectedConvCpltCallback(ADC_HandleTypeDef *hadc)
      */
 
     // 校准专用变量
-    static int offset_read_num  = 0; // 偏移
+    // 1. 极对数检测变量
+    static int pole_pairs_read_num = 0; // 计数
+    static float pole_pair_theta   = 0; // 指令电角度
+    static float pole_pair_theta_1 = 0; // 初始编码器角度
+    static float pole_pair_float;       // 浮点极对数
+    // 2. 编码器偏移和方向校准变量
+    static int offset_read_num  = 0; // 计数
     static float offset_theta_1 = 0; // 电角度0对应的机械角度
     static float offset_theta_2 = 0; // 电角度pi/3对应的机械角度
     static float offset_theta_3 = 0; // 电角度-pi/3对应的机械角度
 
-    // position PID controller
-    position_pid.ref = position_ref;
-    position_pid.fdb = encoder.encoder_total_theta;
-    if (system_state == SYSTEM_RUN && system_run_state == SYSTEM_POSITION_CTL) {
-        PID_Calc(&position_pid, 1, system_sample_time);
-    } else {
-        PID_Calc(&position_pid, 0, system_sample_time);
-    }
-
-    // speed PI Controller
-    if (system_state == SYSTEM_RUN && system_run_state == SYSTEM_POSITION_CTL) {
-        speed_pi.ref = position_pid.output;
-    } else {
-        speed_pi.ref = speed_ref;
-    }
-    speed_pi.fdb = encoder.encoder_speed;
+    // 1. RUN
     if (system_state == SYSTEM_RUN) {
+        // position PID controller
+        position_pid.ref = position_ref;
+        position_pid.fdb = encoder.encoder_total_theta;
+        if (system_run_state == SYSTEM_POSITION_CTL) {
+            PID_Calc(&position_pid, 1, system_sample_time);
+        } else {
+            PID_Calc(&position_pid, 0, system_sample_time);
+        }
+
+        // speed PI Controller
+        if (system_run_state == SYSTEM_POSITION_CTL) {
+            speed_pi.ref = position_pid.output;
+        } else {
+            speed_pi.ref = speed_ref;
+        }
+        speed_pi.fdb = encoder.encoder_speed;
         PID_Calc(&speed_pi, 1, system_sample_time);
-    } else {
-        PID_Calc(&speed_pi, 0, system_sample_time);
-    }
 
-    // abc-to-dq
-    abc_2_dq(&i_abc, &i_dq, encoder.electric_theta);
+        // abc-to-dq
+        abc_2_dq(&i_abc, &i_dq, encoder.electric_theta);
 
-    // dq current LPF
-    id_lpf.input = i_dq.d;
-    LPF_Calc(&id_lpf, 1);
-    i_dql.d = id_lpf.output;
+        // dq current LPF
+        id_lpf.input = i_dq.d;
+        LPF_Calc(&id_lpf, 1);
+        i_dql.d = id_lpf.output;
 
-    iq_lpf.input = i_dq.q;
-    LPF_Calc(&iq_lpf, 1);
-    i_dql.q = iq_lpf.output;
+        iq_lpf.input = i_dq.q;
+        LPF_Calc(&iq_lpf, 1);
+        i_dql.q = iq_lpf.output;
 
-    // (id=0 control)Current PI Controller
-    // d-axis
-    id_pi.ref = 0;
-    id_pi.fdb = i_dql.d;
-    if (system_state == SYSTEM_RUN) {
+        // (id=0 control)Current PI Controller
+        // d-axis
+        id_pi.ref = 0;
+        id_pi.fdb = i_dql.d;
         PID_Calc(&id_pi, 1, system_sample_time);
-    } else {
-        PID_Calc(&id_pi, 0, system_sample_time);
-    }
-    u_dq.d = id_pi.output;
+        u_dq.d = id_pi.output;
 
-    // q-axis
-    iq_pi.ref = speed_pi.output;
-    iq_pi.fdb = i_dql.q;
-    if (system_state == SYSTEM_RUN) {
+        // q-axis
+        iq_pi.ref = speed_pi.output;
+        iq_pi.fdb = i_dql.q;
         PID_Calc(&iq_pi, 1, system_sample_time);
-    } else {
-        PID_Calc(&iq_pi, 0, system_sample_time);
-    }
-    u_dq.q = iq_pi.output;
+        u_dq.q = iq_pi.output;
 
-    // dq_to_abc
-    if (system_state == SYSTEM_TEST) {
+        // dq-to-abc
+        dq_2_abc(&u_dq, &u_abc, encoder.electric_theta);
+    }
+    // 2. TEST
+    else if (system_state == SYSTEM_TEST) {
+        /**
+         * @brief   极对数检测
+         */
+        if (system_test_state == SYSTEM_POLE_PAIRS_TEST) {
+            u_dq.d = 1.0f;
+            u_dq.q = 0.0f;
+            if (pole_pairs_read_num < 10000) {
+                dq_2_abc(&u_dq, &u_abc, 0);
+            } else {
+                pole_pair_theta = pole_pair_theta + 0.001f;
+                dq_2_abc(&u_dq, &u_abc, pole_pair_theta);
+            }
+            pole_pairs_read_num++;
+            if (pole_pairs_read_num == 8000) {
+                pole_pair_theta_1 = encoder.curr_encoder_theta;
+            }
+            if ((pole_pairs_read_num > 12000) && ((encoder.curr_encoder_theta - pole_pair_theta_1) > -0.005f) && ((encoder.curr_encoder_theta - pole_pair_theta_1) < 0.005f)) {
+                pole_pairs_read_num = 0;
+                system_test_state   = SYSTEM_OFFSET_TEST;
+                u_dq.d              = 0.0f;
+                pole_pair_float     = pole_pair_theta / (2 * M_PI);
+                pole_pairs          = (int)roundf(pole_pair_float);
+                encoder.pole_pairs = pole_pairs;
+                sprintf(uart_tx_buf, "pole_pairs read done:%d\r\n", pole_pairs);
+                HAL_UART_Transmit_DMA(&huart1, uart_tx_buf, strlen(uart_tx_buf));
+            }
+        }
         /**
          * @brief   编码器偏置和方向校准
          */
-        if (system_test_state == SYSTEM_OFFSET_TEST) {
+        else if (system_test_state == SYSTEM_OFFSET_TEST) {
             u_dq.d = 1.0f;
             u_dq.q = 0.0f;
             if (offset_read_num <= 10000) {
@@ -526,15 +555,20 @@ void HAL_ADCEx_InjectedConvCpltCallback(ADC_HandleTypeDef *hadc)
             }
         }
     } else {
+        PID_Calc(&id_pi, 0, system_sample_time);
+        PID_Calc(&iq_pi, 0, system_sample_time);
+        PID_Calc(&speed_pi, 0, system_sample_time);
+        PID_Calc(&position_pid, 0, system_sample_time);
+        u_dq.d = 0;
+        u_dq.q = 0;
         dq_2_abc(&u_dq, &u_abc, encoder.electric_theta);
     }
-
-    // SVPWM
-    e_svpwm(&u_abc, u_dc, &duty_abc);
-
     /**
      * @brief   三相 PWM 输出
      */
+    // SVPWM
+    e_svpwm(&u_abc, u_dc, &duty_abc);
+
     if (system_state == SYSTEM_RUN || system_state == SYSTEM_TEST) {
         TIM1->CCR1 = duty_abc.dutya * TIM1->ARR;
         TIM1->CCR2 = duty_abc.dutyb * TIM1->ARR;
