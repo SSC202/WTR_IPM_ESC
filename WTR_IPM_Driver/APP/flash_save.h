@@ -22,11 +22,13 @@ typedef struct {
     float id_pi_ki;
     float iq_pi_kp;
     float iq_pi_ki;
-    uint8_t pole_pairs;        // 电机极对数
-    int encoder_direct;        // 编码器方向
-    float encoder_offset;      // 编码器机械零位偏移
-    Encoder_Type encoder_type; // 编码器类型
-    uint32_t checksum;         // 校验和
+    uint8_t pole_pairs;
+    int encoder_direct;
+    float encoder_offset;
+    Encoder_Type encoder_type;
+    uint8_t id;
+    float u_dc;
+    uint32_t checksum; // 校验和
 } FlashData_t;
 #pragma pack(pop)
 
@@ -50,9 +52,13 @@ extern int encoder_direct;        // 编码器方向
 extern float encoder_offset;      // 编码器机械零位偏移
 extern Encoder_Type encoder_type; // 编码器类型
 
+extern float u_dc; // 直流母线电压
+
+extern uint8_t id; // ESC-IPM ID
+
 void Flash_Init(void);
-HAL_StatusTypeDef Flash_Save(float pos_kp, float pos_ki, float pos_kd, float pos_max, float spd_kp, float spd_ki, float spd_max, float fc, float id_kp, float id_ki, float iq_kp, float iq_ki, uint8_t pps, int dir, float offset, Encoder_Type type);
-void Flash_Read(float *pos_kp, float *pos_ki, float *pos_kd, float *pos_max, float *spd_kp, float *spd_ki, float *spd_max, float *fc, float *id_kp, float *id_ki, float *iq_kp, float *iq_ki, uint8_t *pps, int *dir, float *offset, Encoder_Type *type);
+HAL_StatusTypeDef Flash_Save(float pos_kp, float pos_ki, float pos_kd, float pos_max, float spd_kp, float spd_ki, float spd_max, float fc, float id_kp, float id_ki, float iq_kp, float iq_ki, uint8_t pps, int dir, float offset, Encoder_Type type, uint8_t _id, uint8_t udc);
+void Flash_Read(float *pos_kp, float *pos_ki, float *pos_kd, float *pos_max, float *spd_kp, float *spd_ki, float *spd_max, float *fc, float *id_kp, float *id_ki, float *iq_kp, float *iq_ki, uint8_t *pps, int *dir, float *offset, Encoder_Type *type, uint8_t *_id, uint8_t *udc);
 uint8_t Flash_IsDataValid(void);
 
 #endif

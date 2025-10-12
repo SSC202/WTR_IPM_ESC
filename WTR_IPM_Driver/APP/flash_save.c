@@ -20,6 +20,10 @@ int encoder_direct        = 1;      // 编码器方向
 float encoder_offset      = 1.400f; // 编码器机械零位偏移
 Encoder_Type encoder_type = MT6701; // 编码器类型
 
+float u_dc = 12.0f; // 直流母线电压
+
+uint8_t id; // IPM-ESC ID
+
 /**
  * @brief   计算校验和
  */
@@ -40,7 +44,7 @@ static uint32_t CalculateChecksum(FlashData_t *data)
  */
 void Flash_Init(void)
 {
-    Flash_Read(&position_pid_kp, &position_pid_ki, &position_pid_kd, &position_pid_maxoutput, &speed_pi_kp, &speed_pi_ki, &speed_pi_maxoutput, &f_c, &id_pi_kp, &id_pi_ki, &iq_pi_kp, &iq_pi_ki, &pole_pairs, &encoder_direct, &encoder_offset, &encoder_type);
+    Flash_Read(&position_pid_kp, &position_pid_ki, &position_pid_kd, &position_pid_maxoutput, &speed_pi_kp, &speed_pi_ki, &speed_pi_maxoutput, &f_c, &id_pi_kp, &id_pi_ki, &iq_pi_kp, &iq_pi_ki, &pole_pairs, &encoder_direct, &encoder_offset, &encoder_type, &id, &u_dc);
 
     if (!Flash_IsDataValid()) {
         position_pid_kp        = 20;  // 电机位置 PID kp 值
@@ -57,7 +61,11 @@ void Flash_Init(void)
         id_pi_ki = 20;  // d 轴电流 PI 参数 I
         iq_pi_kp = 0.5; // q 轴电流 PI 参数 P
         iq_pi_ki = 20;  // q 轴电流 PI 参数 I
-        Flash_Save(position_pid_kp, position_pid_ki, position_pid_kd, position_pid_maxoutput, speed_pi_kp, speed_pi_ki, speed_pi_maxoutput, f_c, id_pi_kp, id_pi_ki, iq_pi_kp, iq_pi_ki, pole_pairs, encoder_direct, encoder_offset, encoder_type);
+
+        id = 0; // ESC-IPM ID
+
+        u_dc = 12.0f; // 直流母线电压
+        Flash_Save(position_pid_kp, position_pid_ki, position_pid_kd, position_pid_maxoutput, speed_pi_kp, speed_pi_ki, speed_pi_maxoutput, f_c, id_pi_kp, id_pi_ki, iq_pi_kp, iq_pi_ki, pole_pairs, encoder_direct, encoder_offset, encoder_type, id, u_dc);
     }
 }
 
@@ -83,7 +91,7 @@ uint8_t Flash_IsDataValid(void)
 /**
  * @brief   读取 FLASH 数据
  */
-void Flash_Read(float *pos_kp, float *pos_ki, float *pos_kd, float *pos_max, float *spd_kp, float *spd_ki, float *spd_max, float *fc, float *id_kp, float *id_ki, float *iq_kp, float *iq_ki, uint8_t *pps, int *dir, float *offset, Encoder_Type *type)
+void Flash_Read(float *pos_kp, float *pos_ki, float *pos_kd, float *pos_max, float *spd_kp, float *spd_ki, float *spd_max, float *fc, float *id_kp, float *id_ki, float *iq_kp, float *iq_ki, uint8_t *pps, int *dir, float *offset, Encoder_Type *type, uint8_t *_id, uint8_t *udc)
 {
     if (Flash_IsDataValid()) {
         FlashData_t *flashData = (FlashData_t *)FLASH_STORAGE_ADDR;
@@ -103,6 +111,8 @@ void Flash_Read(float *pos_kp, float *pos_ki, float *pos_kd, float *pos_max, flo
         *dir                   = flashData->encoder_direct;
         *offset                = flashData->encoder_offset;
         *type                  = flashData->encoder_type;
+        *_id                   = flashData->id;
+        *udc                   = flashData->u_dc;
     } else {
         *pos_kp  = 0.0f;
         *pos_ki  = 0.0f;
@@ -120,13 +130,15 @@ void Flash_Read(float *pos_kp, float *pos_ki, float *pos_kd, float *pos_max, flo
         *dir     = 1;
         *offset  = 0.0f;
         *type    = MT6701;
+        *_id     = 0;
+        *udc     = 12.0f;
     }
 }
 
 /**
  * @brief   保存 FLASH 数据
  */
-HAL_StatusTypeDef Flash_Save(float pos_kp, float pos_ki, float pos_kd, float pos_max, float spd_kp, float spd_ki, float spd_max, float fc, float id_kp, float id_ki, float iq_kp, float iq_ki, uint8_t pps, int dir, float offset, Encoder_Type type)
+HAL_StatusTypeDef Flash_Save(float pos_kp, float pos_ki, float pos_kd, float pos_max, float spd_kp, float spd_ki, float spd_max, float fc, float id_kp, float id_ki, float iq_kp, float iq_ki, uint8_t pps, int dir, float offset, Encoder_Type type, uint8_t _id, uint8_t udc)
 {
     HAL_StatusTypeDef status;
     FLASH_EraseInitTypeDef eraseInit;
@@ -151,6 +163,8 @@ HAL_StatusTypeDef Flash_Save(float pos_kp, float pos_ki, float pos_kd, float pos
     newData.encoder_direct         = dir;
     newData.encoder_offset         = offset;
     newData.encoder_type           = type;
+    newData.id                     = _id;
+    newData.u_dc                   = udc;
     newData.checksum               = CalculateChecksum(&newData);
 
     // 解锁FLASH
@@ -203,6 +217,8 @@ HAL_StatusTypeDef Flash_Save(float pos_kp, float pos_ki, float pos_kd, float pos
         encoder_offset         = offset;
         encoder_direct         = dir;
         encoder_type           = type;
+        id                     = _id;
+        u_dc                   = udc;
     }
 
     return status;

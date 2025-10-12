@@ -5,6 +5,7 @@
 #include "adc.h"
 #include "dma.h"
 #include "usart.h"
+#include "fdcan.h"
 
 #include "stm32g4xx.h"
 #include "main.h"
@@ -18,6 +19,8 @@
 
 #include "ringbuffer.h"
 #include "flash_save.h"
+#include "fdcan_config.h"
+#include "float2array.h"
 
 
 void usermain(void);

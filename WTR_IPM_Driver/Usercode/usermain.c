@@ -12,11 +12,12 @@ enum SYSTEM_SAMPLE_STATE {
 enum SYSTEM_SAMPLE_STATE system_sample_state = SAMPLE_INIT; // 采样状态
 
 enum SYSTEM_STATE {
-    SYSTEM_INIT,  // 初始化
-    SYSTEM_STOP,  // 停止
-    SYSTEM_FAULT, // 故障
-    SYSTEM_RUN,   // 运行
-    SYSTEM_TEST   // 参数校准
+    SYSTEM_INIT,      // 初始化
+    SYSTEM_STOP,      // 停止
+    SYSTEM_FAULT,     // 故障
+    SYSTEM_RUN,       // 运行
+    SYSTEM_DEBUG_RUN, // 调试运行
+    SYSTEM_TEST       // 参数校准
 };
 enum SYSTEM_STATE system_state = SYSTEM_INIT; // 系统状态
 
@@ -50,7 +51,6 @@ float position_ref = 0; // 电机位置目标值
 /**
  * @brief   FOC 相关变量
  */
-float u_dc = 12.0f; // 直流母线电压
 
 Encoder_t encoder;  // 编码器
 PID_t position_pid; // 电机位置 PID 控制器
@@ -76,6 +76,14 @@ uint8_t uart_tx_buf[400]; // 串口发送缓冲区
 uint8_t command[50];                                    // 指令存放区
 const char *encoder_type_str[2] = {"MT6701", "AS5600"}; // 串口输出编码器型号
 char encoder_type_rxstr[10];                            // 串口读取编码器型号
+
+/**
+ * @brief   CAN 相关变量
+ */
+uint8_t can_flag = 0;     // CAN 中断标志
+CAN_RX_MSG can_rx_msg;    // CAN 接收消息
+uint8_t can_watchdog = 0; // CAN 看门狗
+
 /**
  * @brief   调试者临时变量
  */
@@ -111,6 +119,8 @@ static void init(void)
     HAL_Delay(100);
     sprintf(uart_tx_buf, "all ready.\r\n");
     HAL_UART_Transmit_DMA(&huart1, uart_tx_buf, strlen(uart_tx_buf));
+    // 使能 FDCAN 传输
+    FDCAN_Config();
     // 使能 PWM 输出
     HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_1);
     HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_2);
@@ -125,6 +135,9 @@ static void init(void)
  */
 static void command_thread(uint8_t command_length)
 {
+    static uint8_t float_array[4];
+
+    // 系统状态机
     switch (system_state) {
         case SYSTEM_STOP:
             /**
@@ -133,13 +146,13 @@ static void command_thread(uint8_t command_length)
             if (command_length != 0) {
                 // 1. 位置设置指令
                 if (memcmp(command, "set_position", 12) == 0) {
-                    system_state     = SYSTEM_RUN;
+                    system_state     = SYSTEM_DEBUG_RUN;
                     system_run_state = SYSTEM_POSITION_CTL;
                     sscanf(command, "set_position %f\r\n", &position_ref);
                 }
                 // 2. 速度设置指令
                 else if (memcmp(command, "set_speed", 9) == 0) {
-                    system_state     = SYSTEM_RUN;
+                    system_state     = SYSTEM_DEBUG_RUN;
                     system_run_state = SYSTEM_VELOCITY_CTL;
                     sscanf(command, "set_speed %f\r\n", &speed_ref);
                 }
@@ -186,11 +199,21 @@ static void command_thread(uint8_t command_length)
                     encoder.encoder_offset = encoder_offset;
                     encoder.encoder_type   = encoder_type;
                 }
-                // 8. 保存配置指令
-                else if (memcmp(command, "save", 4) == 0) {
-                    Flash_Save(position_pid_kp, position_pid_ki, position_pid_kd, position_pid_maxoutput, speed_pi_kp, speed_pi_ki, speed_pi_maxoutput, f_c, id_pi_kp, id_pi_ki, iq_pi_kp, iq_pi_ki, pole_pairs, encoder_direct, encoder_offset, encoder_type);
+                // 8. 设置id指令
+                else if (memcmp(command, "config_id", 9) == 0) {
+                    sscanf(command, "config_id %d\r\n", &id);
                 }
-                // 9. 校准指令
+                // 9. 设置母线电压指令
+                else if (memcmp(command, "config_udc", 10) == 0) {
+                    sscanf(command, "config_udc %f\r\n", &u_dc);
+                    PID_Init(&id_pi, id_pi_kp, id_pi_ki, 0, u_dc / M_SQRT3);
+                    PID_Init(&iq_pi, iq_pi_kp, iq_pi_ki, 0, u_dc / M_SQRT3);
+                }
+                // 9. 保存配置指令
+                else if (memcmp(command, "save", 4) == 0) {
+                    Flash_Save(position_pid_kp, position_pid_ki, position_pid_kd, position_pid_maxoutput, speed_pi_kp, speed_pi_ki, speed_pi_maxoutput, f_c, id_pi_kp, id_pi_ki, iq_pi_kp, iq_pi_ki, pole_pairs, encoder_direct, encoder_offset, encoder_type, id, u_dc);
+                }
+                // 10. 校准指令
                 else if (memcmp(command, "calibration", 11) == 0) {
                     system_state      = SYSTEM_TEST;
                     system_test_state = SYSTEM_POLE_PAIRS_TEST;
@@ -199,9 +222,26 @@ static void command_thread(uint8_t command_length)
             /**
              * @brief 接收CAN线指令
              */
-
+            switch (can_rx_msg.command) {
+                case CAN_SET_POSITION:
+                    if (can_watchdog > 0) {
+                        position_ref     = can_rx_msg.value;
+                        system_state     = SYSTEM_RUN;
+                        system_run_state = SYSTEM_POSITION_CTL;
+                    }
+                    break;
+                case CAN_SET_SPEED:
+                    if (can_watchdog > 0) {
+                        speed_ref        = can_rx_msg.value;
+                        system_state     = SYSTEM_RUN;
+                        system_run_state = SYSTEM_VELOCITY_CTL;
+                    }
+                    break;
+                default:
+                    break;
+            }
             break;
-        case SYSTEM_RUN:
+        case SYSTEM_DEBUG_RUN:
             switch (system_run_state) {
                 case SYSTEM_POSITION_CTL:
                     /**
@@ -224,6 +264,34 @@ static void command_thread(uint8_t command_length)
                             position_ref = encoder.encoder_total_theta;
                         }
                     }
+                    /**
+                     * @brief 接收CAN线指令
+                     */
+                    switch (can_rx_msg.command) {
+                        case CAN_SET_POSITION:
+                            if (can_watchdog > 0) {
+                                position_ref     = can_rx_msg.value;
+                                system_state     = SYSTEM_RUN;
+                                system_run_state = SYSTEM_POSITION_CTL;
+                            }
+                            break;
+                        case CAN_SET_SPEED:
+                            if (can_watchdog > 0) {
+                                speed_ref        = can_rx_msg.value;
+                                system_state     = SYSTEM_RUN;
+                                system_run_state = SYSTEM_VELOCITY_CTL;
+                            }
+                            break;
+                        case CAN_STOP:
+                            if (can_watchdog > 0) {
+                                system_state = SYSTEM_STOP;
+                                speed_ref    = 0;
+                                position_ref = encoder.encoder_total_theta;
+                            }
+                            break;
+                        default:
+                            break;
+                    }
                     break;
                 case SYSTEM_VELOCITY_CTL:
                     /**
@@ -245,6 +313,96 @@ static void command_thread(uint8_t command_length)
                             speed_ref    = 0;
                             position_ref = encoder.encoder_total_theta;
                         }
+                    }
+                    /**
+                     * @brief 接收CAN线指令
+                     */
+                    if (can_watchdog > 0) {
+                        switch (can_rx_msg.command) {
+                            case CAN_SET_POSITION:
+                                position_ref     = can_rx_msg.value;
+                                system_state     = SYSTEM_RUN;
+                                system_run_state = SYSTEM_POSITION_CTL;
+                                break;
+                            case CAN_SET_SPEED:
+                                speed_ref        = can_rx_msg.value;
+                                system_state     = SYSTEM_RUN;
+                                system_run_state = SYSTEM_VELOCITY_CTL;
+                                break;
+                            case CAN_STOP:
+                                system_state = SYSTEM_STOP;
+                                speed_ref    = 0;
+                                position_ref = encoder.encoder_total_theta;
+                                break;
+                            default:
+                                break;
+                        }
+                    }
+                    break;
+                default:
+                    break;
+            }
+            break;
+        case SYSTEM_RUN:
+            switch (system_run_state) {
+                case SYSTEM_VELOCITY_CTL:
+                    /**
+                     * @brief   接收 CAN 指令
+                     */
+                    if (can_watchdog > 0) {
+                        switch (can_rx_msg.command) {
+                            case CAN_SET_POSITION:
+                                position_ref     = can_rx_msg.value;
+                                system_state     = SYSTEM_RUN;
+                                system_run_state = SYSTEM_POSITION_CTL;
+                                break;
+                            case CAN_SET_SPEED:
+                                speed_ref        = can_rx_msg.value;
+                                system_state     = SYSTEM_RUN;
+                                system_run_state = SYSTEM_VELOCITY_CTL;
+                                break;
+                            case CAN_STOP:
+                                system_state = SYSTEM_STOP;
+                                speed_ref    = 0;
+                                position_ref = encoder.encoder_total_theta;
+                                break;
+                            default:
+                                break;
+                        }
+                    } else {
+                        system_state = SYSTEM_STOP;
+                        speed_ref    = 0;
+                        position_ref = encoder.encoder_total_theta;
+                    }
+                    break;
+                case SYSTEM_POSITION_CTL:
+                    /**
+                     * @brief   接收 CAN 指令
+                     */
+                    if (can_watchdog > 0) {
+                        switch (can_rx_msg.command) {
+                            case CAN_SET_POSITION:
+                                position_ref     = can_rx_msg.value;
+                                system_state     = SYSTEM_RUN;
+                                system_run_state = SYSTEM_POSITION_CTL;
+                                break;
+                            case CAN_SET_SPEED:
+                                speed_ref        = can_rx_msg.value;
+                                system_state     = SYSTEM_RUN;
+                                system_run_state = SYSTEM_VELOCITY_CTL;
+                                break;
+                            case CAN_STOP:
+                                system_state = SYSTEM_STOP;
+                                speed_ref    = 0;
+                                position_ref = encoder.encoder_total_theta;
+                                break;
+                            default:
+                                break;
+                        }
+                    } else {
+                        system_state = SYSTEM_STOP;
+                        speed_ref    = 0;
+                        position_ref = encoder.encoder_total_theta;
                     }
                     break;
                 default:
@@ -310,7 +468,9 @@ void uart_send_thread(uint8_t command_length)
             break;
         case SEND_CONFIG:
             sprintf(uart_tx_buf,
-                    "position_pid:\r\nKp: %f\r\nKi: %f\r\nKd: %f\r\nmaxoutput: %f\r\n\r\nspeed_pi:\r\nKp: %f\r\nKi: %f\r\nmaxoutput: %f\r\n\r\nidq_filter_fc: %f\r\n\r\ni_pi:\r\nid_Kp: %f\r\nid_Ki: %f\r\niq_Kp: %f\r\niq_Ki: %f\r\n\r\nencoder:\r\npole_pairs:%d\r\nencoder_direct:%d\r\nencoder_offset:%f\r\nencoder_type:%s\r\n",
+                    "id:%d\r\n\r\nudc:%f\r\n\r\nposition_pid:\r\nKp: %f\r\nKi: %f\r\nKd: %f\r\nmaxoutput: %f\r\n\r\nspeed_pi:\r\nKp: %f\r\nKi: %f\r\nmaxoutput: %f\r\n\r\nidq_filter_fc: %f\r\n\r\ni_pi:\r\nid_Kp: %f\r\nid_Ki: %f\r\niq_Kp: %f\r\niq_Ki: %f\r\n\r\nencoder:\r\npole_pairs:%d\r\nencoder_direct:%d\r\nencoder_offset:%f\r\nencoder_type:%s\r\n",
+                    id,
+                    u_dc,
                     position_pid.KP,
                     position_pid.KI,
                     position_pid.KD,
@@ -336,6 +496,33 @@ void uart_send_thread(uint8_t command_length)
 }
 
 /**
+ * @brief   FDCAN发送线程
+ */
+void can_send_thread(uint8_t cnt)
+{
+    /**
+     * @brief   心跳包发送
+     */
+    CAN_MSG msg;
+    static uint8_t float_array1[4];
+    static uint8_t float_array2[4];
+    msg.id  = id;
+    msg.len = 0x08;
+    msg.rtr = DATA_FRAME;
+    float_2_array(encoder.encoder_total_theta, float_array1);
+    for (int i = 0; i < 4; i++) {
+        msg.buffer[i] = float_array1[i];
+    }
+    float_2_array(encoder.encoder_speed, float_array2);
+    for (int j = 0; j < 4; j++) {
+        msg.buffer[j + 4] = float_array2[j];
+    }
+    if (cnt == 0) {
+        FDCAN_Send_Msg(&msg);
+    }
+}
+
+/**
  * @brief   系统主函数
  */
 void usermain(void)
@@ -346,6 +533,9 @@ void usermain(void)
         command_length = command_get_command(command);
         command_thread(command_length);   // 系统状态机线程
         uart_send_thread(command_length); // 串口发送线程
+        /**
+         * @brief   DEBUG
+         */
     }
 }
 
@@ -428,7 +618,7 @@ void HAL_ADCEx_InjectedConvCpltCallback(ADC_HandleTypeDef *hadc)
     static float offset_theta_3 = 0; // 电角度-pi/3对应的机械角度
 
     // 1. RUN
-    if (system_state == SYSTEM_RUN) {
+    if (system_state == SYSTEM_RUN || system_state == SYSTEM_DEBUG_RUN) {
         // position PID controller
         position_pid.ref = position_ref;
         position_pid.fdb = encoder.encoder_total_theta;
@@ -494,12 +684,13 @@ void HAL_ADCEx_InjectedConvCpltCallback(ADC_HandleTypeDef *hadc)
                 pole_pair_theta_1 = encoder.curr_encoder_theta;
             }
             if ((pole_pairs_read_num > 12000) && ((encoder.curr_encoder_theta - pole_pair_theta_1) > -0.005f) && ((encoder.curr_encoder_theta - pole_pair_theta_1) < 0.005f)) {
-                pole_pairs_read_num = 0;
                 system_test_state   = SYSTEM_OFFSET_TEST;
                 u_dq.d              = 0.0f;
                 pole_pair_float     = pole_pair_theta / (2 * M_PI);
                 pole_pairs          = (int)roundf(pole_pair_float);
-                encoder.pole_pairs = pole_pairs;
+                pole_pairs_read_num = 0;
+                pole_pair_theta     = 0;
+                encoder.pole_pairs  = pole_pairs;
                 sprintf(uart_tx_buf, "pole_pairs read done:%d\r\n", pole_pairs);
                 HAL_UART_Transmit_DMA(&huart1, uart_tx_buf, strlen(uart_tx_buf));
             }
@@ -569,7 +760,7 @@ void HAL_ADCEx_InjectedConvCpltCallback(ADC_HandleTypeDef *hadc)
     // SVPWM
     e_svpwm(&u_abc, u_dc, &duty_abc);
 
-    if (system_state == SYSTEM_RUN || system_state == SYSTEM_TEST) {
+    if (system_state == SYSTEM_RUN || system_state == SYSTEM_TEST || system_state == SYSTEM_DEBUG_RUN) {
         TIM1->CCR1 = duty_abc.dutya * TIM1->ARR;
         TIM1->CCR2 = duty_abc.dutyb * TIM1->ARR;
         TIM1->CCR3 = duty_abc.dutyc * TIM1->ARR;
@@ -577,6 +768,24 @@ void HAL_ADCEx_InjectedConvCpltCallback(ADC_HandleTypeDef *hadc)
         TIM1->CCR1 = 0 * TIM1->ARR;
         TIM1->CCR2 = 0 * TIM1->ARR;
         TIM1->CCR3 = 0 * TIM1->ARR;
+    }
+    /**
+     * @brief   CAN 发送和接收管理
+     */
+    static int can_send_cnt = 0;
+    can_send_thread(can_send_cnt); // CAN发送线程
+    can_send_cnt++;
+    if (can_send_cnt == 999) {
+        can_send_cnt = 0;
+    }
+
+    static int can_watchdog_cnt = 0;
+    can_watchdog_cnt++;
+    if (can_watchdog_cnt == 1999) {
+        can_watchdog_cnt = 0;
+        if (can_watchdog > 0) {
+            can_watchdog--;
+        }
     }
 }
 
@@ -589,5 +798,30 @@ void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size)
         command_write(uart_rx_buf, Size);
         HAL_UARTEx_ReceiveToIdle_DMA(&huart1, uart_rx_buf, sizeof(uart_rx_buf));
         __HAL_DMA_DISABLE_IT(&hdma_usart1_rx, DMA_IT_HT);
+    }
+}
+
+/**
+ * @brief   FDCAN中断回调函数
+ */
+void HAL_FDCAN_RxFifo0Callback(FDCAN_HandleTypeDef *hfdcan, uint32_t RxFifo0ITs)
+{
+    FDCAN_RxHeaderTypeDef sRxHeader;
+    uint8_t rx_buf[8];
+
+    if (RxFifo0ITs == FDCAN_IT_RX_FIFO0_NEW_MESSAGE) {
+        if (can_flag == 0) {
+            can_flag = 1;
+            // 喂狗
+            if (can_watchdog < 5) {
+                can_watchdog++;
+            }
+            HAL_FDCAN_GetRxMessage(&hfdcan1, FDCAN_RX_FIFO0, &sRxHeader, rx_buf);
+            // 确认是本电机消息后解码
+            if (sRxHeader.RxFrameType == FDCAN_DATA_FRAME && sRxHeader.Identifier == id) {
+                FDCAN_Msg_Decode(rx_buf, &can_rx_msg);
+            }
+            can_flag = 0;
+        }
     }
 }

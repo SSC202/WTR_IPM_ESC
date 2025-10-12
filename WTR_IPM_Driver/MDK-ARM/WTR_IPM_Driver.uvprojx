@@ -1138,6 +1138,16 @@
               <FileType>1</FileType>
               <FilePath>..\APP\flash_save.c</FilePath>
             </File>
+            <File>
+              <FileName>fdcan_config.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\APP\fdcan_config.c</FilePath>
+            </File>
+            <File>
+              <FileName>float2array.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\APP\float2array.c</FilePath>
+            </File>
           </Files>
         </Group>
         <Group>
