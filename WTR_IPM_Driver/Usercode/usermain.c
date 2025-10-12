@@ -29,7 +29,8 @@ enum SYSTEM_RUN_STATE system_run_state = SYSTEM_VELOCITY_CTL; // 系统运行状
 
 enum SYSTEM_TEST_STATE {
     SYSTEM_POLE_PAIRS_TEST, // 电机极对数检测
-    SYSTEM_OFFSET_TEST,     // 编码器偏置/方向检查
+    SYSTEM_OFFSET_TEST,     // 编码器偏置/方向检测
+    SYSTEM_R_TEST,          // 定子电感检测
 };
 enum SYSTEM_TEST_STATE system_test_state = SYSTEM_OFFSET_TEST; // 系统校准状态
 
@@ -85,6 +86,17 @@ CAN_RX_MSG can_rx_msg;    // CAN 接收消息
 uint8_t can_watchdog = 0; // CAN 看门狗
 
 /**
+ * @brief   参数辨识相关变量
+ */
+float r_s; // 定子电阻
+float L_d; // 定子d轴电感
+float L_q; // 定子q轴电感
+
+alpha_beta_t i_alphabeta; // 定子静止坐标系电流
+float i_s;                // 定子电流幅值
+LPF_t is_lpf;             // 定子电流幅值低通滤波器
+
+/**
  * @brief   调试者临时变量
  */
 
@@ -95,6 +107,8 @@ static void init(void)
 {
     // 参数读取
     Flash_Init();
+    // 参数辨识控制器初始化
+    LPF_Init(&is_lpf, 10, system_sample_time);
     // 控制器/滤波器初始化
     LPF_Init(&id_lpf, f_c, system_sample_time);
     LPF_Init(&iq_lpf, f_c, system_sample_time);
@@ -121,6 +135,7 @@ static void init(void)
     HAL_UART_Transmit_DMA(&huart1, uart_tx_buf, strlen(uart_tx_buf));
     // 使能 FDCAN 传输
     FDCAN_Config();
+    HAL_TIM_Base_Start_IT(&htim2);
     // 使能 PWM 输出
     HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_1);
     HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_2);
@@ -498,7 +513,7 @@ void uart_send_thread(uint8_t command_length)
 /**
  * @brief   FDCAN发送线程
  */
-void can_send_thread(uint8_t cnt)
+void can_send_thread(void)
 {
     /**
      * @brief   心跳包发送
@@ -517,9 +532,7 @@ void can_send_thread(uint8_t cnt)
     for (int j = 0; j < 4; j++) {
         msg.buffer[j + 4] = float_array2[j];
     }
-    if (cnt == 0) {
-        FDCAN_Send_Msg(&msg);
-    }
+    FDCAN_Send_Msg(&msg);
 }
 
 /**
@@ -536,6 +549,7 @@ void usermain(void)
         /**
          * @brief   DEBUG
          */
+        // printf("i: %f,%f,%f\r\n", i_abc.a, i_abc.b, i_abc.c);
     }
 }
 
@@ -616,6 +630,12 @@ void HAL_ADCEx_InjectedConvCpltCallback(ADC_HandleTypeDef *hadc)
     static float offset_theta_1 = 0; // 电角度0对应的机械角度
     static float offset_theta_2 = 0; // 电角度pi/3对应的机械角度
     static float offset_theta_3 = 0; // 电角度-pi/3对应的机械角度
+    // 3. 定子电阻校准变量
+    static int r_read_num = 0; // 计数
+    static float r_s1;         // 第一次计算电阻值
+    static float r_s2;         // 第二次计算电阻值
+    static float r_s3;         // 第三次计算电阻值
+    static float r_s4;         // 第四次计算电阻值
 
     // 1. RUN
     if (system_state == SYSTEM_RUN || system_state == SYSTEM_DEBUG_RUN) {
@@ -742,7 +762,51 @@ void HAL_ADCEx_InjectedConvCpltCallback(ADC_HandleTypeDef *hadc)
                 }
                 offset_read_num             = 0;
                 encoder.encoder_total_theta = 0.0f;
-                system_state                = SYSTEM_STOP;
+                system_test_state           = SYSTEM_R_TEST;
+            }
+        }
+        /**
+         * @brief   定子电阻检测
+         * @note    采用阶梯电压法,向d轴注入直流电压检测定子电阻
+         */
+        else if (system_test_state == SYSTEM_R_TEST) {
+            if (r_read_num < 10000) {
+                u_dq.d = 0.5f;
+                u_dq.d = 0.0f;
+                dq_2_abc(&u_dq, &u_abc, 0);
+            } else if (r_read_num > 9999 && r_read_num < 20000) {
+                u_dq.d = 1.0f;
+                u_dq.q = 0.0f;
+                dq_2_abc(&u_dq, &u_abc, 0);
+            } else if (r_read_num > 19999 && r_read_num < 30000) {
+                u_dq.d = 1.5f;
+                u_dq.q = 0.0f;
+                dq_2_abc(&u_dq, &u_abc, 0);
+            } else if (r_read_num > 29999 && r_read_num < 40000) {
+                u_dq.d = 2.0f;
+                u_dq.q = 0.0f;
+                dq_2_abc(&u_dq, &u_abc, 0);
+            }
+            abc_2_alphabeta(&i_abc, &i_alphabeta);
+            is_lpf.input = sqrtf(i_alphabeta.alpha * i_alphabeta.alpha + i_alphabeta.beta * i_alphabeta.beta);
+            LPF_Calc(&is_lpf, 1);
+            i_s = is_lpf.output;
+            r_read_num++;
+            if (r_read_num == 9500) {
+                r_s1 = 0.5 / i_s;
+            } else if (r_read_num == 19500) {
+                r_s2 = 1.0 / i_s;
+            } else if (r_read_num == 29500) {
+                r_s3 = 1.5 / i_s;
+            } else if (r_read_num == 39500) {
+                r_s4 = 2.0 / i_s;
+            } else if (r_read_num == 40000) {
+                system_state      = SYSTEM_STOP;
+                system_test_state = SYSTEM_POLE_PAIRS_TEST;
+                r_read_num        = 0;
+                r_s               = (r_s1 + r_s2 + r_s3 + r_s4) / 4.f;
+                sprintf(uart_tx_buf, "R read done:%f\r\n", r_s);
+                HAL_UART_Transmit_DMA(&huart1, uart_tx_buf, strlen(uart_tx_buf));
             }
         }
     } else {
@@ -768,24 +832,6 @@ void HAL_ADCEx_InjectedConvCpltCallback(ADC_HandleTypeDef *hadc)
         TIM1->CCR1 = 0 * TIM1->ARR;
         TIM1->CCR2 = 0 * TIM1->ARR;
         TIM1->CCR3 = 0 * TIM1->ARR;
-    }
-    /**
-     * @brief   CAN 发送和接收管理
-     */
-    static int can_send_cnt = 0;
-    can_send_thread(can_send_cnt); // CAN发送线程
-    can_send_cnt++;
-    if (can_send_cnt == 999) {
-        can_send_cnt = 0;
-    }
-
-    static int can_watchdog_cnt = 0;
-    can_watchdog_cnt++;
-    if (can_watchdog_cnt == 1999) {
-        can_watchdog_cnt = 0;
-        if (can_watchdog > 0) {
-            can_watchdog--;
-        }
     }
 }
 
@@ -822,6 +868,25 @@ void HAL_FDCAN_RxFifo0Callback(FDCAN_HandleTypeDef *hfdcan, uint32_t RxFifo0ITs)
                 FDCAN_Msg_Decode(rx_buf, &can_rx_msg);
             }
             can_flag = 0;
+        }
+    }
+}
+
+void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
+{
+    static int can_watchdog_cnt = 0;
+    if (htim->Instance == TIM2) {
+        /**
+         * @brief   CAN 发送和接收管理
+         */
+        can_send_thread(); // CAN发送线程
+
+        can_watchdog_cnt++;
+        if (can_watchdog_cnt == 1) {
+            can_watchdog_cnt = 0;
+            if (can_watchdog > 0) {
+                can_watchdog--;
+            }
         }
     }
 }
