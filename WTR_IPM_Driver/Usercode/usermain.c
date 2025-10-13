@@ -31,6 +31,8 @@ enum SYSTEM_TEST_STATE {
     SYSTEM_POLE_PAIRS_TEST, // 电机极对数检测
     SYSTEM_OFFSET_TEST,     // 编码器偏置/方向检测
     SYSTEM_R_TEST,          // 定子电感检测
+    SYSTEM_LD_TEST,         // 定子电阻检测
+    SYSTEM_LQ_TEST          // 定子q轴电感检测
 };
 enum SYSTEM_TEST_STATE system_test_state = SYSTEM_OFFSET_TEST; // 系统校准状态
 
@@ -96,6 +98,9 @@ alpha_beta_t i_alphabeta; // 定子静止坐标系电流
 float i_s;                // 定子电流幅值
 LPF_t is_lpf;             // 定子电流幅值低通滤波器
 
+LPF_t idm_lpf; // 定子d轴电流幅值低通滤波器
+LPF_t iqm_lpf; // 定子q轴电流幅值低通滤波器
+
 /**
  * @brief   调试者临时变量
  */
@@ -109,6 +114,8 @@ static void init(void)
     Flash_Init();
     // 参数辨识控制器初始化
     LPF_Init(&is_lpf, 10, system_sample_time);
+    LPF_Init(&idm_lpf, 100, system_sample_time * 10);
+    LPF_Init(&iqm_lpf, 100, system_sample_time * 10);
     // 控制器/滤波器初始化
     LPF_Init(&id_lpf, f_c, system_sample_time);
     LPF_Init(&iq_lpf, f_c, system_sample_time);
@@ -636,6 +643,17 @@ void HAL_ADCEx_InjectedConvCpltCallback(ADC_HandleTypeDef *hadc)
     static float r_s2;         // 第二次计算电阻值
     static float r_s3;         // 第三次计算电阻值
     static float r_s4;         // 第四次计算电阻值
+    // 4. 定子电感校准变量
+    static int ld_read_num     = 0; // 计数
+    static int lq_read_num     = 0; // 计数
+    static int ld_index        = 0; // 正弦表索引
+    static int lq_index        = 0; // 正弦表索引
+    static float re            = 0; // DFT 实部
+    static float im            = 0; // DFT 虚部
+    static float sin_table[10] = {0, 0.5878f, 0.9511f, 0.9511f, 0.5878f, 0, -0.5878f, -0.9511f, -0.9511f, -0.5878f};
+    static float cos_table[10] = {1, 0.8090f, 0.3090f, -0.3090f, -0.8090f, -1, -0.8090f, -0.3090f, 0.3090f, 0.8090f};
+    static float idm           = 0;
+    static float iqm           = 0;
 
     // 1. RUN
     if (system_state == SYSTEM_RUN || system_state == SYSTEM_DEBUG_RUN) {
@@ -741,21 +759,21 @@ void HAL_ADCEx_InjectedConvCpltCallback(ADC_HandleTypeDef *hadc)
                 if ((offset_theta_1 < offset_theta_2) && (offset_theta_1 > offset_theta_3)) {
                     encoder_direct         = 1;
                     encoder.encoder_direct = encoder_direct;
-                    encoder_offset         = pole_pairs * encoder_direct * offset_theta_1;
+                    encoder_offset         = normalize(pole_pairs, encoder_direct, offset_theta_1);
                     encoder.encoder_offset = encoder_offset;
                     sprintf(uart_tx_buf, "offset read done.direct:1\r\n");
                     HAL_UART_Transmit_DMA(&huart1, uart_tx_buf, strlen(uart_tx_buf));
                 } else if ((offset_theta_1 > offset_theta_2) && (offset_theta_1 < offset_theta_3)) {
                     encoder_direct         = -1;
                     encoder.encoder_direct = encoder_direct;
-                    encoder_offset         = pole_pairs * encoder_direct * offset_theta_1;
+                    encoder_offset         = normalize(pole_pairs, encoder_direct, offset_theta_1);
                     encoder.encoder_offset = encoder_offset;
                     sprintf(uart_tx_buf, "offset read done.direct:-1\r\n");
                     HAL_UART_Transmit_DMA(&huart1, uart_tx_buf, strlen(uart_tx_buf));
                 } else {
                     encoder_direct         = 1;
                     encoder.encoder_direct = encoder_direct;
-                    encoder_offset         = pole_pairs * encoder_direct * offset_theta_1;
+                    encoder_offset         = normalize(pole_pairs, encoder_direct, offset_theta_1);
                     encoder.encoder_offset = encoder_offset;
                     sprintf(uart_tx_buf, "offset read failed.\r\n");
                     HAL_UART_Transmit_DMA(&huart1, uart_tx_buf, strlen(uart_tx_buf));
@@ -801,12 +819,83 @@ void HAL_ADCEx_InjectedConvCpltCallback(ADC_HandleTypeDef *hadc)
             } else if (r_read_num == 39500) {
                 r_s4 = 2.0 / i_s;
             } else if (r_read_num == 40000) {
-                system_state      = SYSTEM_STOP;
-                system_test_state = SYSTEM_POLE_PAIRS_TEST;
+                system_test_state = SYSTEM_LD_TEST;
                 r_read_num        = 0;
                 r_s               = (r_s1 + r_s2 + r_s3 + r_s4) / 4.f;
                 sprintf(uart_tx_buf, "R read done:%f\r\n", r_s);
                 HAL_UART_Transmit_DMA(&huart1, uart_tx_buf, strlen(uart_tx_buf));
+            }
+        }
+        /**
+         * @brief   定子d轴电感检测
+         */
+        else if (system_test_state == SYSTEM_LD_TEST) {
+            ld_index = ld_read_num % 10;
+            u_dq.d   = 1.0f + 4.0f * sin_table[ld_index];
+            u_dq.q   = 0.0f;
+            dq_2_abc(&u_dq, &u_abc, 0);
+            abc_2_dq(&i_abc, &i_dq, 0);
+            if (ld_read_num > 999) {
+                // DFT
+                re = re + i_dq.d * cos_table[ld_index];
+                im = im + i_dq.d * sin_table[ld_index];
+                if (ld_index == 9) {
+                    idm_lpf.input = sqrtf(re * re + im * im) / 5.f;
+                    LPF_Calc(&idm_lpf, 1);
+                    idm = idm_lpf.output;
+                    re  = 0;
+                    im  = 0;
+                }
+            }
+            ld_read_num++;
+            if (ld_read_num == 20000) {
+                L_d = 4.0f / (2 * M_PI * 1000 * idm);
+                sprintf(uart_tx_buf, "Ld read done:%f\r\n", L_d);
+                HAL_UART_Transmit_DMA(&huart1, uart_tx_buf, strlen(uart_tx_buf));
+                system_test_state = SYSTEM_LQ_TEST;
+                ld_read_num       = 0;
+                re                = 0;
+                im                = 0;
+            }
+        }
+        /**
+         * @brief   定子q轴电感检测
+         */
+        else if (system_test_state == SYSTEM_LQ_TEST) {
+            lq_index = lq_read_num % 10;
+            u_dq.d   = 1.0f;
+            u_dq.q   = 4.0f * sin_table[lq_index];
+            dq_2_abc(&u_dq, &u_abc, 0);
+            abc_2_dq(&i_abc, &i_dq, 0);
+            if (lq_read_num > 999) {
+                // DFT
+                re = re + i_dq.q * cos_table[lq_index];
+                im = im + i_dq.q * sin_table[lq_index];
+                if (lq_index == 9) {
+                    iqm_lpf.input = sqrtf(re * re + im * im) / 5.f;
+                    LPF_Calc(&iqm_lpf, 1);
+                    iqm = iqm_lpf.output;
+                    re  = 0;
+                    im  = 0;
+                }
+            }
+            lq_read_num++;
+            if (lq_read_num == 20000) {
+                L_q = 4.0f / (2 * M_PI * 1000 * iqm);
+                sprintf(uart_tx_buf, "Lq read done:%f\r\n", L_q);
+                HAL_UART_Transmit_DMA(&huart1, uart_tx_buf, strlen(uart_tx_buf));
+                // 电流环 PI 参数计算
+                id_pi_kp = L_d * 5;
+                id_pi_ki = r_s * 5;
+                iq_pi_kp = L_q * 5;
+                iq_pi_ki = r_s * 5;
+                PID_Init(&id_pi, id_pi_kp, id_pi_ki, 0, u_dc / M_SQRT3);
+                PID_Init(&iq_pi, iq_pi_kp, iq_pi_ki, 0, u_dc / M_SQRT3);
+                system_state      = SYSTEM_STOP;
+                system_test_state = SYSTEM_POLE_PAIRS_TEST;
+                lq_read_num       = 0;
+                re                = 0;
+                im                = 0;
             }
         }
     } else {

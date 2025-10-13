@@ -1,12 +1,12 @@
 #include "flash_save.h"
 
-float position_pid_kp        = 20;  // 电机位置 PID kp 值
-float position_pid_ki        = 20;  // 电机位置 PID ki 值
+float position_pid_kp        = 50;  // 电机位置 PID kp 值
+float position_pid_ki        = 50;  // 电机位置 PID ki 值
 float position_pid_kd        = 0.1; // 电机位置 PID kd 值
 float position_pid_maxoutput = 400; // 电机位置 PID 最大输出
 
-float speed_pi_kp        = 0.1; // 电机速度 PI 参数 P
-float speed_pi_ki        = 0.5; // 电机速度 PI 参数 I
+float speed_pi_kp        = 0.01; // 电机速度 PI 参数 P
+float speed_pi_ki        = 0.05; // 电机速度 PI 参数 I
 float speed_pi_maxoutput = 1;   // 电机速度 PI 最大输出
 
 float f_c      = 100; // 电流滤波器截止频率(Hz)

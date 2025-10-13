@@ -11,9 +11,9 @@
  *                          设定一个ud值,uq设置为0,启动电机,电机将会旋转到电角度零点,此时读取编码器角度即为偏差
  * @return  电机的电角度,归一化为 -PI 到 PI 之间
  */
-float normalize(int pole_pairs, float mechine_angle, float offset)
+float normalize(int pps, float mechine_angle, float offset)
 {
-    float electric_angle = pole_pairs * mechine_angle - offset;
+    float electric_angle = pps * mechine_angle - offset;
     float out            = electric_angle;
     while (out < -M_PI) {
         out = out + 2 * M_PI;

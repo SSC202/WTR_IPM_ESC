@@ -36,7 +36,7 @@
 
 #define M_TABLE_SIZE 1024
 
-float normalize(int pole_pairs, float mechine_angle, float offset);
+float normalize(int pps, float mechine_angle, float offset);
 float get_middle(float a, float b, float c);
 float get_max(float a, float b, float c);
 float get_min(float a, float b, float c);
