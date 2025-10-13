@@ -7,7 +7,7 @@ float position_pid_maxoutput = 400; // 电机位置 PID 最大输出
 
 float speed_pi_kp        = 0.01; // 电机速度 PI 参数 P
 float speed_pi_ki        = 0.05; // 电机速度 PI 参数 I
-float speed_pi_maxoutput = 1;   // 电机速度 PI 最大输出
+float speed_pi_maxoutput = 2;   // 电机速度 PI 最大输出
 
 float f_c      = 100; // 电流滤波器截止频率(Hz)
 float id_pi_kp = 0.5; // d 轴电流 PI 参数 P
@@ -54,7 +54,7 @@ void Flash_Init(void)
 
         speed_pi_kp        = 0.1; // 电机速度 PI 参数 P
         speed_pi_ki        = 0.5; // 电机速度 PI 参数 I
-        speed_pi_maxoutput = 1;   // 电机速度 PI 最大输出
+        speed_pi_maxoutput = 2;   // 电机速度 PI 最大输出
 
         f_c      = 100; // 电流滤波器截止频率(Hz)
         id_pi_kp = 0.5; // d 轴电流 PI 参数 P

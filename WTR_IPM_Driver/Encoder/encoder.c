@@ -58,7 +58,7 @@ void Encoder_Get_Angle_Speed(Encoder_t *encoder)
     float speed;
     speed                       = encoder->encoder_theta_diff * 10000.0f;
     encoder->last_encoder_theta = encoder->curr_encoder_theta;
-    encoder->encoder_speed      = 0.01f * speed + 0.99f * encoder->encoder_speed; // 一阶低通滤波
+    encoder->encoder_speed      = 0.4f * speed + 0.6f * encoder->encoder_speed; // 一阶低通滤波
 
     if (total_num > 24) {
         total_num                    = 24;

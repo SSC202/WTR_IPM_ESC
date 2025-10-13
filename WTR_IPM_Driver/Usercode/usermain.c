@@ -30,9 +30,11 @@ enum SYSTEM_RUN_STATE system_run_state = SYSTEM_VELOCITY_CTL; // 系统运行状
 enum SYSTEM_TEST_STATE {
     SYSTEM_POLE_PAIRS_TEST, // 电机极对数检测
     SYSTEM_OFFSET_TEST,     // 编码器偏置/方向检测
-    SYSTEM_R_TEST,          // 定子电感检测
-    SYSTEM_LD_TEST,         // 定子电阻检测
-    SYSTEM_LQ_TEST          // 定子q轴电感检测
+    SYSTEM_R_TEST,          // 定子电阻检测
+    SYSTEM_LD_TEST,         // 定子d轴电感检测
+    SYSTEM_LQ_TEST,         // 定子q轴电感检测
+    SYSTEM_FIELD_TEST,      // 磁链检测
+    SYSTEM_J_TEST,          // 转动惯量检测
 };
 enum SYSTEM_TEST_STATE system_test_state = SYSTEM_OFFSET_TEST; // 系统校准状态
 
@@ -90,9 +92,11 @@ uint8_t can_watchdog = 0; // CAN 看门狗
 /**
  * @brief   参数辨识相关变量
  */
-float r_s; // 定子电阻
-float L_d; // 定子d轴电感
-float L_q; // 定子q轴电感
+float r_s;         // 定子电阻
+float L_d;         // 定子d轴电感
+float L_q;         // 定子q轴电感
+float phi_f;       // 电机磁链
+float J = 1.57e-6; // 转子转动惯量
 
 alpha_beta_t i_alphabeta; // 定子静止坐标系电流
 float i_s;                // 定子电流幅值
@@ -100,6 +104,8 @@ LPF_t is_lpf;             // 定子电流幅值低通滤波器
 
 LPF_t idm_lpf; // 定子d轴电流幅值低通滤波器
 LPF_t iqm_lpf; // 定子q轴电流幅值低通滤波器
+
+LPF_t phif_lpf; // 磁链低通滤波器
 
 /**
  * @brief   调试者临时变量
@@ -116,6 +122,7 @@ static void init(void)
     LPF_Init(&is_lpf, 10, system_sample_time);
     LPF_Init(&idm_lpf, 100, system_sample_time * 10);
     LPF_Init(&iqm_lpf, 100, system_sample_time * 10);
+    LPF_Init(&phif_lpf, 1, system_sample_time);
     // 控制器/滤波器初始化
     LPF_Init(&id_lpf, f_c, system_sample_time);
     LPF_Init(&iq_lpf, f_c, system_sample_time);
@@ -132,6 +139,7 @@ static void init(void)
     __HAL_ADC_CLEAR_FLAG(&hadc1, ADC_FLAG_JEOC);
     __HAL_ADC_CLEAR_FLAG(&hadc1, ADC_FLAG_EOC);
     HAL_TIM_Base_Start(&htim1);
+    HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_4);
     HAL_ADCEx_InjectedStart_IT(&hadc1);
     while (system_sample_state == SAMPLE_INIT) {
         ;
@@ -556,7 +564,6 @@ void usermain(void)
         /**
          * @brief   DEBUG
          */
-        // printf("i: %f,%f,%f\r\n", i_abc.a, i_abc.b, i_abc.c);
     }
 }
 
@@ -654,6 +661,17 @@ void HAL_ADCEx_InjectedConvCpltCallback(ADC_HandleTypeDef *hadc)
     static float cos_table[10] = {1, 0.8090f, 0.3090f, -0.3090f, -0.8090f, -1, -0.8090f, -0.3090f, 0.3090f, 0.8090f};
     static float idm           = 0;
     static float iqm           = 0;
+    // 5. 电机磁链校准变量
+    static int field_read_num   = 0; // 计数
+    static float electric_speed = 0; // 电角速度
+    // 6. 电机转动惯量校准变量
+    static int j_read_num  = 0; // 计数
+    static float speed_max = 0; // 最大速度记录
+    static float P_max     = 0;
+    static float speed_1   = 0;
+    static int t_1         = 0;
+    static float speed_2   = 0;
+    static int t_2         = 0;
 
     // 1. RUN
     if (system_state == SYSTEM_RUN || system_state == SYSTEM_DEBUG_RUN) {
@@ -822,7 +840,7 @@ void HAL_ADCEx_InjectedConvCpltCallback(ADC_HandleTypeDef *hadc)
                 system_test_state = SYSTEM_LD_TEST;
                 r_read_num        = 0;
                 r_s               = (r_s1 + r_s2 + r_s3 + r_s4) / 4.f;
-                sprintf(uart_tx_buf, "R read done:%f\r\n", r_s);
+                sprintf(uart_tx_buf, "R read done:%fohm\r\n", r_s);
                 HAL_UART_Transmit_DMA(&huart1, uart_tx_buf, strlen(uart_tx_buf));
             }
         }
@@ -850,7 +868,7 @@ void HAL_ADCEx_InjectedConvCpltCallback(ADC_HandleTypeDef *hadc)
             ld_read_num++;
             if (ld_read_num == 20000) {
                 L_d = 4.0f / (2 * M_PI * 1000 * idm);
-                sprintf(uart_tx_buf, "Ld read done:%f\r\n", L_d);
+                sprintf(uart_tx_buf, "Ld read done:%fH\r\n", L_d);
                 HAL_UART_Transmit_DMA(&huart1, uart_tx_buf, strlen(uart_tx_buf));
                 system_test_state = SYSTEM_LQ_TEST;
                 ld_read_num       = 0;
@@ -882,20 +900,107 @@ void HAL_ADCEx_InjectedConvCpltCallback(ADC_HandleTypeDef *hadc)
             lq_read_num++;
             if (lq_read_num == 20000) {
                 L_q = 4.0f / (2 * M_PI * 1000 * iqm);
-                sprintf(uart_tx_buf, "Lq read done:%f\r\n", L_q);
+                sprintf(uart_tx_buf, "Lq read done:%fH\r\n", L_q);
                 HAL_UART_Transmit_DMA(&huart1, uart_tx_buf, strlen(uart_tx_buf));
                 // 电流环 PI 参数计算
-                id_pi_kp = L_d * 5;
-                id_pi_ki = r_s * 5;
-                iq_pi_kp = L_q * 5;
-                iq_pi_ki = r_s * 5;
+                id_pi_kp = L_d * 100;
+                id_pi_ki = r_s * 100;
+                iq_pi_kp = L_q * 100;
+                iq_pi_ki = r_s * 100;
                 PID_Init(&id_pi, id_pi_kp, id_pi_ki, 0, u_dc / M_SQRT3);
                 PID_Init(&iq_pi, iq_pi_kp, iq_pi_ki, 0, u_dc / M_SQRT3);
-                system_state      = SYSTEM_STOP;
-                system_test_state = SYSTEM_POLE_PAIRS_TEST;
+                system_test_state = SYSTEM_FIELD_TEST;
                 lq_read_num       = 0;
                 re                = 0;
                 im                = 0;
+            }
+        }
+        /**
+         * @brief   电机磁链检测
+         */
+        else if (system_test_state == SYSTEM_FIELD_TEST) {
+            u_dq.d = 0;
+            u_dq.q = 4;
+            dq_2_abc(&u_dq, &u_abc, encoder.electric_theta);
+
+            // abc-to-dq
+            abc_2_dq(&i_abc, &i_dq, encoder.electric_theta);
+
+            // dq current LPF
+            id_lpf.input = i_dq.d;
+            LPF_Calc(&id_lpf, 1);
+            i_dql.d = id_lpf.output;
+
+            iq_lpf.input = i_dq.q;
+            LPF_Calc(&iq_lpf, 1);
+            i_dql.q = iq_lpf.output;
+
+            field_read_num++;
+            if (field_read_num > 999) {
+                // 磁链计算
+                electric_speed = fabs(pole_pairs * encoder.encoder_speed);
+                phif_lpf.input = (4 - r_s * i_dql.q - electric_speed * L_d * i_dql.d) / electric_speed;
+                LPF_Calc(&phif_lpf, 1);
+            }
+            if (field_read_num == 39000) {
+                phi_f = phif_lpf.output;
+            }
+            if (field_read_num == 40000) {
+                field_read_num = 0;
+                sprintf(uart_tx_buf, "field read done:%fWb\r\n", phi_f);
+                HAL_UART_Transmit_DMA(&huart1, uart_tx_buf, strlen(uart_tx_buf));
+                system_test_state = SYSTEM_J_TEST;
+            }
+        } else if (system_test_state = SYSTEM_J_TEST) {
+            if (j_read_num < 10000) {
+                u_dq.d = 0.0f;
+                u_dq.q = 4.0f;
+                dq_2_abc(&u_dq, &u_abc, encoder.electric_theta);
+                abc_2_dq(&i_abc, &i_dq, encoder.electric_theta);
+                iq_lpf.input = i_dq.q;
+                LPF_Calc(&iq_lpf, 1);
+                i_dql.q = iq_lpf.output;
+            } else if (j_read_num > 9999 && j_read_num < 30000) {
+                HAL_TIM_PWM_Stop(&htim1, TIM_CHANNEL_1);
+                HAL_TIM_PWM_Stop(&htim1, TIM_CHANNEL_2);
+                HAL_TIM_PWM_Stop(&htim1, TIM_CHANNEL_3);
+                HAL_TIMEx_PWMN_Stop(&htim1, TIM_CHANNEL_1);
+                HAL_TIMEx_PWMN_Stop(&htim1, TIM_CHANNEL_2);
+                HAL_TIMEx_PWMN_Stop(&htim1, TIM_CHANNEL_3);
+                if (((encoder.encoder_speed - speed_1) < 0.5f) && ((encoder.encoder_speed - speed_1) > -0.5f)) {
+                    t_1 = j_read_num;
+                }
+                if (((encoder.encoder_speed - speed_2) < 0.5f) && ((encoder.encoder_speed - speed_2) > -0.5f)) {
+                    t_2 = j_read_num;
+                }
+            }
+            j_read_num++;
+            if (j_read_num == 8000) {
+                P_max     = 1.5 * 4 * i_dql.q;
+                speed_max = encoder.encoder_speed;
+                speed_1   = speed_max * 0.9f;
+                speed_2   = speed_max * 0.1f;
+            }
+            if (j_read_num == 30000) {
+                j_read_num = 0;
+                HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_1);
+                HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_2);
+                HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_3);
+                HAL_TIMEx_PWMN_Start(&htim1, TIM_CHANNEL_1);
+                HAL_TIMEx_PWMN_Start(&htim1, TIM_CHANNEL_2);
+                HAL_TIMEx_PWMN_Start(&htim1, TIM_CHANNEL_3);
+                // 计算转动惯量
+                float n_1     = fabs(speed_1 / (M_PI / 30));
+                float n_2     = fabs(speed_2 / (M_PI / 30));
+                float delta_t = (t_2 - t_1) * system_sample_time;
+                J             = (P_max * delta_t) / (5.48 * (n_1 * n_1 - n_2 * n_2));
+                sprintf(uart_tx_buf, "J read done:%fkg*m^2\r\n", J);
+                HAL_UART_Transmit_DMA(&huart1, uart_tx_buf, strlen(uart_tx_buf));
+                speed_pi_kp = (1e6 * J) / (1.5 * pole_pairs * phi_f);
+                speed_pi_ki = 100 * speed_pi_kp;
+                PID_Init(&speed_pi, speed_pi_kp, speed_pi_ki, 0, speed_pi_maxoutput);
+                system_state      = SYSTEM_STOP;
+                system_test_state = SYSTEM_POLE_PAIRS_TEST;
             }
         }
     } else {
