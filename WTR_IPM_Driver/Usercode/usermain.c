@@ -446,7 +446,7 @@ static void command_thread(uint8_t command_length)
             if (command_length != 0) {
                 // 1. 位置设置指令
                 if (memcmp(command, "clear_fault", 11) == 0) {
-                    system_run_state = SYSTEM_STOP;
+                    system_state = SYSTEM_STOP;
                 }
             }
             break;
@@ -949,6 +949,7 @@ void HAL_ADCEx_InjectedConvCpltCallback(ADC_HandleTypeDef *hadc)
                 field_read_num = 0;
                 sprintf(uart_tx_buf, "field read done:%fWb\r\n", phi_f);
                 HAL_UART_Transmit_DMA(&huart1, uart_tx_buf, strlen(uart_tx_buf));
+                LPF_Init(&iq_lpf, 0.1, system_sample_time);
                 system_test_state = SYSTEM_J_TEST;
             }
         } else if (system_test_state = SYSTEM_J_TEST) {
@@ -993,12 +994,13 @@ void HAL_ADCEx_InjectedConvCpltCallback(ADC_HandleTypeDef *hadc)
                 float n_1     = fabs(speed_1 / (M_PI / 30));
                 float n_2     = fabs(speed_2 / (M_PI / 30));
                 float delta_t = (t_2 - t_1) * system_sample_time;
-                J             = (P_max * delta_t) / (5.48 * (n_1 * n_1 - n_2 * n_2));
+                J             = (1e3 * P_max * delta_t) / (5.48 * (n_1 * n_1 - n_2 * n_2));
                 sprintf(uart_tx_buf, "J read done:%fkg*m^2\r\n", J);
                 HAL_UART_Transmit_DMA(&huart1, uart_tx_buf, strlen(uart_tx_buf));
-                speed_pi_kp = (1e6 * J) / (1.5 * pole_pairs * phi_f);
-                speed_pi_ki = 100 * speed_pi_kp;
+                speed_pi_kp = (80 * J) / (1.5 * pole_pairs * phi_f);
+                speed_pi_ki = 80 * speed_pi_kp;
                 PID_Init(&speed_pi, speed_pi_kp, speed_pi_ki, 0, speed_pi_maxoutput);
+                LPF_Init(&iq_lpf, f_c, system_sample_time);
                 system_state      = SYSTEM_STOP;
                 system_test_state = SYSTEM_POLE_PAIRS_TEST;
             }
