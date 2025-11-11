@@ -4,6 +4,7 @@
 #include "stm32g4xx.h"
 
 #include "mt6701.h"
+#include "as5600.h"
 
 /**
  * @brief   编码器数值编号定义
@@ -11,7 +12,7 @@
 typedef enum Encoder_Type {
     MT6701, // MT6701
     AS5600, // AS5600
-}Encoder_Type;
+} Encoder_Type;
 typedef struct {
     enum Encoder_Type encoder_type; // 编码器类型(数值编号)
 

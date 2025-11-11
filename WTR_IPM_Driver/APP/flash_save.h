@@ -57,8 +57,8 @@ extern float u_dc; // 直流母线电压
 extern uint8_t id; // ESC-IPM ID
 
 void Flash_Init(void);
-HAL_StatusTypeDef Flash_Save(float pos_kp, float pos_ki, float pos_kd, float pos_max, float spd_kp, float spd_ki, float spd_max, float fc, float id_kp, float id_ki, float iq_kp, float iq_ki, uint8_t pps, int dir, float offset, Encoder_Type type, uint8_t _id, uint8_t udc);
-void Flash_Read(float *pos_kp, float *pos_ki, float *pos_kd, float *pos_max, float *spd_kp, float *spd_ki, float *spd_max, float *fc, float *id_kp, float *id_ki, float *iq_kp, float *iq_ki, uint8_t *pps, int *dir, float *offset, Encoder_Type *type, uint8_t *_id, uint8_t *udc);
+HAL_StatusTypeDef Flash_Save(float pos_kp, float pos_ki, float pos_kd, float pos_max, float spd_kp, float spd_ki, float spd_max, float fc, float id_kp, float id_ki, float iq_kp, float iq_ki, uint8_t pps, int dir, float offset, Encoder_Type type, uint8_t _id, float udc);
+void Flash_Read(float *pos_kp, float *pos_ki, float *pos_kd, float *pos_max, float *spd_kp, float *spd_ki, float *spd_max, float *fc, float *id_kp, float *id_ki, float *iq_kp, float *iq_ki, uint8_t *pps, int *dir, float *offset, Encoder_Type *type, uint8_t *_id, float *udc);
 uint8_t Flash_IsDataValid(void);
 
 #endif

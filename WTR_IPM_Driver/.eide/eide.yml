@@ -78,6 +78,7 @@ virtualFolder:
       files:
         - path: Encoder/MT6701/mt6701.c
         - path: Encoder/encoder.c
+        - path: Encoder/AS5600/as5600.c
       folders: []
     - name: ::CMSIS
       files: []
@@ -104,6 +105,7 @@ targets:
         - Encoder
         - APP
         - Encoder/MT6701
+        - Encoder/AS5600
         - .cmsis/include
         - MDK-ARM/RTE/_WTR_IPM_Driver
       libList: []

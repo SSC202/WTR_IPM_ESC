@@ -13,16 +13,18 @@
 void Encoder_Init(Encoder_t *encoder, uint8_t pole_pairs, int encoder_direct, Encoder_Type encoder_type, float offset)
 {
 
-    switch (encoder_type)
-    {
-    case MT6701:
-        MT6701_Init();
-        break;
-    default:
-        break;
+    switch (encoder_type) {
+        case MT6701:
+            MT6701_Init();
+            break;
+        case AS5600:
+            AS5600_Init();
+            break;
+        default:
+            break;
     }
 
-    encoder->encoder_type  = encoder_type;
+    encoder->encoder_type   = encoder_type;
     encoder->pole_pairs     = pole_pairs;
     encoder->encoder_direct = encoder_direct;
     encoder->encoder_offset = offset;
@@ -41,7 +43,9 @@ void Encoder_Get_Angle_Speed(Encoder_t *encoder)
         case MT6701:
             MT6701_Get_Angle(&theta);
             break;
-
+        case AS5600:
+            AS5600_Get_Angle(&theta);
+            break;
         default:
             break;
     }

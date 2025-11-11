@@ -1,9 +1,9 @@
-#include "mt6701.h"
+#include "as5600.h"
 
 /*******************宏定义部分*************************/
 
 /* 如果使能软件IIC */
-#if (MT6701_SoftWare_IIC == 1)
+#if (AS5600_SoftWare_IIC == 1)
 #include "gpio.h"
 #include <inttypes.h>
 #define IIC_WR 0 /* 写控制bit */
@@ -11,24 +11,24 @@
 #define IIC_SCL(x)                                                                                                                                        \
     do                                                                                                                                                    \
     {                                                                                                                                                     \
-        (x == 1) ? HAL_GPIO_WritePin(MT6701_SCL_Port, MT6701_SCL_Pin, GPIO_PIN_SET) : HAL_GPIO_WritePin(MT6701_SCL_Port, MT6701_SCL_Pin, GPIO_PIN_RESET); \
+        (x == 1) ? HAL_GPIO_WritePin(AS5600_SCL_Port, AS5600_SCL_Pin, GPIO_PIN_SET) : HAL_GPIO_WritePin(AS5600_SCL_Port, AS5600_SCL_Pin, GPIO_PIN_RESET); \
     } while (0)
 
 #define IIC_SDA(x)                                                                                                                                        \
     do                                                                                                                                                    \
     {                                                                                                                                                     \
-        (x == 1) ? HAL_GPIO_WritePin(MT6701_SDA_Port, MT6701_SDA_Pin, GPIO_PIN_SET) : HAL_GPIO_WritePin(MT6701_SDA_Port, MT6701_SDA_Pin, GPIO_PIN_RESET); \
+        (x == 1) ? HAL_GPIO_WritePin(AS5600_SDA_Port, AS5600_SDA_Pin, GPIO_PIN_SET) : HAL_GPIO_WritePin(AS5600_SDA_Port, AS5600_SDA_Pin, GPIO_PIN_RESET); \
     } while (0)
 
-#define IIC_SDA_READ() HAL_GPIO_ReadPin(MT6701_SDA_Port, MT6701_SDA_Pin) /* 读SDA口线状态 */
+#define IIC_SDA_READ() HAL_GPIO_ReadPin(AS5600_SDA_Port, AS5600_SDA_Pin) /* 读SDA口线状态 */
 #endif
 
 /* 如果使能硬件IIC */
-#if (MT6701_HardWare_IIC == 1)
+#if (AS5600_HardWare_IIC == 1)
 
 #include "i2c.h"
-#define MT6701_WRITE_ADDR (0x0C) // MT6701 写地址
-#define MT6701_READ_ADDR (0x0D)  // MT6701 读地址
+#define AS5600_WRITE_ADDR ((AS5600_ADDR << 1) | 0x00) // AS5600 写地址
+#define AS5600_READ_ADDR ((AS5600_ADDR << 1) | 0x01)  // AS5600 读地址
 
 #endif
 
@@ -36,7 +36,7 @@
 
 /* 如果使能软件IIC */
 
-#if (MT6701_SoftWare_IIC == 1)
+#if (AS5600_SoftWare_IIC == 1)
 /**
  * @brief               IIC 总线延迟，最快为400kHz
  * @attention           循环次数为10时，SCL频率 = 205KHz
@@ -45,8 +45,9 @@
 */
 static void _IIC_Delay(void)
 {
-    __IO uint8_t i;
-    for (i = 0; i < 1; i++)
+    uint8_t i;
+
+    for (i = 0; i < 10; i++)
         ;
 }
 
@@ -226,7 +227,7 @@ static uint8_t _IIC_CheckDevice(uint8_t _Address)
  * @param   len     写入长度
  * @param   buf     数据区
  */
-uint8_t MT6701_Write_Len(uint8_t addr, uint8_t reg, uint8_t len, uint8_t *buf)
+uint8_t AS5600_Write_Len(uint8_t addr, uint8_t reg, uint8_t len, uint8_t *buf)
 {
     uint8_t i;
     _IIC_Start();
@@ -258,7 +259,7 @@ uint8_t MT6701_Write_Len(uint8_t addr, uint8_t reg, uint8_t len, uint8_t *buf)
  * @param   len     写入长度
  * @param   buf     数据区
  */
-uint8_t MT6701_Read_Len(uint8_t addr, uint8_t reg, uint8_t len, uint8_t *buf)
+uint8_t AS5600_Read_Len(uint8_t addr, uint8_t reg, uint8_t len, uint8_t *buf)
 {
     _IIC_Start();
     _IIC_Send_Byte((addr << 1) | 0); // 发送器件地址+写命令
@@ -290,10 +291,10 @@ uint8_t MT6701_Read_Len(uint8_t addr, uint8_t reg, uint8_t len, uint8_t *buf)
  * @param   reg     寄存器地址
  * @param   data    数据
  */
-static uint8_t MT6701_Write_Byte(uint8_t reg, uint8_t data)
+static uint8_t AS5600_Write_Byte(uint8_t reg, uint8_t data)
 {
     _IIC_Start();
-    _IIC_Send_Byte((MT6701_ADDR << 1) | 0); // 发送器件地址+写命令
+    _IIC_Send_Byte((AS5600_ADDR << 1) | 0); // 发送器件地址+写命令
     if (_IIC_Wait_Ack())                    // 等待应答
     {
         _IIC_Stop();
@@ -315,16 +316,16 @@ static uint8_t MT6701_Write_Byte(uint8_t reg, uint8_t data)
  * @brief   IIC读字节
  * @param   reg     寄存器地址
  */
-static uint8_t MT6701_Read_Byte(uint8_t reg)
+static uint8_t AS5600_Read_Byte(uint8_t reg)
 {
     uint8_t res;
     _IIC_Start();
-    _IIC_Send_Byte((MT6701_ADDR << 1) | 0); // 发送器件地址+写命令
+    _IIC_Send_Byte((AS5600_ADDR << 1) | 0); // 发送器件地址+写命令
     _IIC_Wait_Ack();                        // 等待应答
     _IIC_Send_Byte(reg);                    // 写寄存器地址
     _IIC_Wait_Ack();                        // 等待应答
     _IIC_Start();
-    _IIC_Send_Byte((MT6701_ADDR << 1) | 1); // 发送器件地址+读命令
+    _IIC_Send_Byte((AS5600_ADDR << 1) | 1); // 发送器件地址+读命令
     _IIC_Wait_Ack();                        // 等待应答
     res = _IIC_Read_Byte(0);                // 读取数据,发送nACK
     _IIC_Stop();                            // 产生一个停止条件
@@ -334,38 +335,38 @@ static uint8_t MT6701_Read_Byte(uint8_t reg)
 #endif
 
 /* 如果使能硬件IIC */
-#if (MT6701_HardWare_IIC == 1)
+#if (AS5600_HardWare_IIC == 1)
 
 /**
- * @brief   MT6701 向寄存器内写字节
+ * @brief   AS5600 向寄存器内写字节
  * @param   reg     寄存器地址
  * @param   value   数据
  */
-static uint8_t MT6701_Write_Byte(uint8_t reg, uint8_t data)
+static uint8_t AS5600_Write_Byte(uint8_t reg, uint8_t data)
 {
-    return HAL_I2C_Mem_Write(&hi2c1, MT6701_WRITE_ADDR, reg, I2C_MEMADD_SIZE_8BIT, &data, 1, 50);
+    return HAL_I2C_Mem_Write(&hi2c1, AS5600_WRITE_ADDR, reg, I2C_MEMADD_SIZE_8BIT, &data, 1, 50);
 }
 
 /**
- * @brief   MT6701 向寄存器内连续写
+ * @brief   AS5600 向寄存器内连续写
  * @param   reg     寄存器地址
  * @param   value   数据
  * @param   len     数据长度
  */
-static uint8_t MT6701_Write_Len(uint8_t addr, uint8_t reg, uint8_t len, uint8_t *buf)
+static uint8_t AS5600_Write_Len(uint8_t addr, uint8_t reg, uint8_t len, uint8_t *buf)
 {
-    return HAL_I2C_Mem_Write(&hi2c1, MT6701_WRITE_ADDR, reg, I2C_MEMADD_SIZE_8BIT, buf, len, 50);
+    return HAL_I2C_Mem_Write(&hi2c1, AS5600_WRITE_ADDR, reg, I2C_MEMADD_SIZE_8BIT, buf, len, 50);
 }
 
 /**
- * @brief   MT6701 从寄存器内连续读
+ * @brief   AS5600 从寄存器内连续读
  * @param   reg     寄存器地址
  * @param   buf     数据
  * @param   len     数据长度
  */
-static uint8_t MT6701_Read_Len(uint8_t addr, uint8_t reg, uint8_t len, uint8_t *buf)
+static uint8_t AS5600_Read_Len(uint8_t addr, uint8_t reg, uint8_t len, uint8_t *buf)
 {
-    return HAL_I2C_Mem_Read(&hi2c1, MT6701_READ_ADDR, reg, I2C_MEMADD_SIZE_8BIT, buf, len, 50);
+    return HAL_I2C_Mem_Read(&hi2c1, AS5600_READ_ADDR, reg, I2C_MEMADD_SIZE_8BIT, buf, len, 50);
 }
 
 #endif
@@ -375,23 +376,23 @@ static uint8_t MT6701_Read_Len(uint8_t addr, uint8_t reg, uint8_t len, uint8_t *
 /**
  * @brief   MT6701 初始化函数
  */
-void MT6701_Init(void)
+void AS5600_Init(void)
 {
-#if (MT6701_SoftWare_IIC == 1)
+#if (AS5600_SoftWare_IIC == 1)
     _IIC_GPIO_Init(); // 初始化IIC总线
 #endif
 }
 
 /**
- * @brief   MT6701 读取角度
+ * @brief   AS5600 读取角度
  * @param   angle  绝对角度值
  */
-void MT6701_Get_Angle(float *angle)
+void AS5600_Get_Angle(float *angle)
 {
     uint8_t temp[2];
     int16_t encoder_angle;
-    MT6701_Read_Len(MT6701_ADDR, MT6701_ANGLE_REG, 2, temp);
+    AS5600_Read_Len(AS5600_ADDR, AS5600_ANGLE_REG, 2, temp);
 
-    encoder_angle = ((int16_t)temp[0] << 6) | (temp[1] >> 2);
-    *angle = (float)encoder_angle * (2 * 3.141592654f) / 16384.f;
+    encoder_angle = ((int16_t)temp[0] << 8) | (uint16_t)temp[1];
+    *angle = (float)encoder_angle * (2 * 3.141592654f) / 4096.f;
 }

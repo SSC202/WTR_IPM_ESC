@@ -230,6 +230,31 @@
           <WinNumber>1</WinNumber>
           <ItemText>J</ItemText>
         </Ww>
+        <Ww>
+          <count>16</count>
+          <WinNumber>1</WinNumber>
+          <ItemText>i_abc</ItemText>
+        </Ww>
+        <Ww>
+          <count>17</count>
+          <WinNumber>1</WinNumber>
+          <ItemText>u_dc</ItemText>
+        </Ww>
+        <Ww>
+          <count>18</count>
+          <WinNumber>1</WinNumber>
+          <ItemText>encoder,0x0A</ItemText>
+        </Ww>
+        <Ww>
+          <count>19</count>
+          <WinNumber>1</WinNumber>
+          <ItemText>r_s</ItemText>
+        </Ww>
+        <Ww>
+          <count>20</count>
+          <WinNumber>1</WinNumber>
+          <ItemText>encoder</ItemText>
+        </Ww>
       </WatchWindow1>
       <Tracepoint>
         <THDelay>0</THDelay>
@@ -813,6 +838,18 @@
       <RteFlg>0</RteFlg>
       <bShared>0</bShared>
     </File>
+    <File>
+      <GroupNumber>8</GroupNumber>
+      <FileNumber>40</FileNumber>
+      <FileType>1</FileType>
+      <tvExp>0</tvExp>
+      <tvExpOptDlg>0</tvExpOptDlg>
+      <bDave2>0</bDave2>
+      <PathWithFileName>..\Encoder\AS5600\as5600.c</PathWithFileName>
+      <FilenameWithoutPath>as5600.c</FilenameWithoutPath>
+      <RteFlg>0</RteFlg>
+      <bShared>0</bShared>
+    </File>
   </Group>
 
   <Group>
@@ -823,7 +860,7 @@
     <RteFlg>0</RteFlg>
     <File>
       <GroupNumber>9</GroupNumber>
-      <FileNumber>40</FileNumber>
+      <FileNumber>41</FileNumber>
       <FileType>1</FileType>
       <tvExp>0</tvExp>
       <tvExpOptDlg>0</tvExpOptDlg>
@@ -835,7 +872,7 @@
     </File>
     <File>
       <GroupNumber>9</GroupNumber>
-      <FileNumber>41</FileNumber>
+      <FileNumber>42</FileNumber>
       <FileType>1</FileType>
       <tvExp>0</tvExp>
       <tvExpOptDlg>0</tvExpOptDlg>
@@ -847,7 +884,7 @@
     </File>
     <File>
       <GroupNumber>9</GroupNumber>
-      <FileNumber>42</FileNumber>
+      <FileNumber>43</FileNumber>
       <FileType>1</FileType>
       <tvExp>0</tvExp>
       <tvExpOptDlg>0</tvExpOptDlg>
@@ -859,7 +896,7 @@
     </File>
     <File>
       <GroupNumber>9</GroupNumber>
-      <FileNumber>43</FileNumber>
+      <FileNumber>44</FileNumber>
       <FileType>1</FileType>
       <tvExp>0</tvExp>
       <tvExpOptDlg>0</tvExpOptDlg>

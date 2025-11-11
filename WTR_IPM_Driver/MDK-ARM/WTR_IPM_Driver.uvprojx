@@ -313,7 +313,7 @@
           </ArmAdsMisc>
           <Cads>
             <interw>1</interw>
-            <Optim>1</Optim>
+            <Optim>2</Optim>
             <oTime>0</oTime>
             <SplitLS>0</SplitLS>
             <OneElfS>1</OneElfS>
@@ -339,7 +339,7 @@
               <MiscControls></MiscControls>
               <Define>USE_HAL_DRIVER,STM32G431xx</Define>
               <Undefine></Undefine>
-              <IncludePath>../Core/Inc;../Drivers/STM32G4xx_HAL_Driver/Inc;../Drivers/STM32G4xx_HAL_Driver/Inc/Legacy;../Drivers/CMSIS/Device/ST/STM32G4xx/Include;../Drivers/CMSIS/Include;../FOC;../Usercode;../Hardware;../Encoder;../Encoder/MT6701;../APP</IncludePath>
+              <IncludePath>../Core/Inc;../Drivers/STM32G4xx_HAL_Driver/Inc;../Drivers/STM32G4xx_HAL_Driver/Inc/Legacy;../Drivers/CMSIS/Device/ST/STM32G4xx/Include;../Drivers/CMSIS/Include;../FOC;../Usercode;../Hardware;../Encoder;../Encoder/MT6701;../Encoder/AS5600;../APP</IncludePath>
             </VariousControls>
           </Cads>
           <Aads>
@@ -1122,6 +1122,11 @@
               <FileName>encoder.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\Encoder\encoder.c</FilePath>
+            </File>
+            <File>
+              <FileName>as5600.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Encoder\AS5600\as5600.c</FilePath>
             </File>
           </Files>
         </Group>
