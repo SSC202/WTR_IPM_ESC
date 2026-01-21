@@ -102,7 +102,7 @@ uint8_t can_watchdog = 0; // CAN 看门狗
  * @brief   参数辨识相关变量
  */
 float u_max = 0.f; // 检测最大电压
-float i_max = 1.f; // 检测最大电流
+float i_max = 2.f; // 检测最大电流
 float r_s;         // 定子电阻
 float L_d;         // 定子d轴电感
 float L_q;         // 定子q轴电感
@@ -910,7 +910,7 @@ void HAL_ADCEx_InjectedConvCpltCallback(ADC_HandleTypeDef *hadc)
         {
             u_dq.d = u_test;
             u_dq.q = 0;
-            u_test = u_test + 0.0001f;
+            u_test = u_test + 0.00001f;
             dq_2_abc(&u_dq, &u_abc, 0);
             abc_2_alphabeta(&i_abc, &i_alphabeta);
             is_lpf.input = sqrtf(i_alphabeta.alpha * i_alphabeta.alpha + i_alphabeta.beta * i_alphabeta.beta);
@@ -930,7 +930,7 @@ void HAL_ADCEx_InjectedConvCpltCallback(ADC_HandleTypeDef *hadc)
          */
         else if (system_test_state == SYSTEM_POLE_PAIRS_TEST)
         {
-            u_dq.d = 0.6 * u_max;
+            u_dq.d = 0.8 * u_max;
             u_dq.q = 0.0f;
             if (pole_pairs_read_num < 10000)
             {
@@ -938,7 +938,7 @@ void HAL_ADCEx_InjectedConvCpltCallback(ADC_HandleTypeDef *hadc)
             }
             else
             {
-                pole_pair_theta = pole_pair_theta + 0.00025f;
+                pole_pair_theta = pole_pair_theta + 0.0005f;
                 dq_2_abc(&u_dq, &u_abc, pole_pair_theta);
             }
             pole_pairs_read_num++;
@@ -1259,7 +1259,7 @@ void HAL_ADCEx_InjectedConvCpltCallback(ADC_HandleTypeDef *hadc)
                 K = gain_1hz;
                 float ratio = gain_5hz / K;
                 T = sqrtf(1.0f / (ratio * ratio) - 1.0f) / (2 * M_PI * 5.0f);
-                float w_cl = 2 * M_PI * 4.0f;
+                float w_cl = 2 * M_PI * 1.0f;
 
                 speed_pi_kp = (2 * 1.0f * w_cl * T - 1) / K;
                 speed_pi_ki = (w_cl * w_cl * T) / K;
